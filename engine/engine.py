@@ -54,6 +54,10 @@ class Engine:
         # {symbol: {side, entry, qty, stop, target, breakeven_done, partial_done, lock}}
         self._mgmt = {}
         self._syms = cfg["strategy"]["symbols"]
+        # signal cooldown: symbol -> last (side, timestamp) so the same
+        # signal isn't re-logged/processed every poll.
+        self._signal_cooldown = {}
+        self._cooldown_secs = cfg["engine"].get("signal_cooldown_secs", 300)
 
     # ---------------------------------------------------------
     def _log(self, msg, level="INFO"):
@@ -238,6 +242,13 @@ class Engine:
             try:
                 sig = self.scan_symbol(symbol)
                 if sig:
+                    # Cooldown: don't re-fire the same symbol+side signal
+                    # within the cooldown window (stops log spam + duplicate
+                    # processing while a pattern persists).
+                    last = self._signal_cooldown.get(symbol)
+                    if last and last[0] == sig["side"] and (time.time() - last[1]) < self._cooldown_secs:
+                        continue
+                    self._signal_cooldown[symbol] = (sig["side"], time.time())
                     STATE.add_signal(sig)
                     if symbol not in self._mgmt:
                         self.enter(sig)

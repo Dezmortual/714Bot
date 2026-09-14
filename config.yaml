@@ -75,6 +75,7 @@ risk:
 # ---- Engine ----
 engine:
   poll_seconds: 15          # how often the loop checks candles/sessions
+  signal_cooldown_secs: 300 # same symbol+side signal re-fires only after 5 min
   candle_warmup: 60         # minimum candles loaded before signals
   log_file: data/trades.csv
 
