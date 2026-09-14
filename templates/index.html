@@ -55,6 +55,7 @@
   <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
     <span id="statusBadge" class="badge off">STOPPED</span>
     <span id="modeBadge" class="badge sim">—</span>
+    <span id="sessionBadge" class="badge off">—</span>
     <button id="btnStart">Start</button>
     <button id="btnStop" class="ghost">Stop</button>
   </div>
@@ -129,6 +130,17 @@ async function refresh(){
   el('statusBadge').className = 'badge ' + (s.running ? 'on':'off');
   el('modeBadge').textContent = (s.mode||'').toUpperCase();
   el('modeBadge').className = 'badge ' + (s.mode==='simulation'?'sim':'on');
+
+  // session status
+  const ses = s.session || {};
+  const sb = el('sessionBadge');
+  if (ses.in_session) {
+    sb.textContent = '📊 ' + (ses.label||'IN SESSION');
+    sb.className = 'badge on';
+  } else {
+    sb.textContent = '⏳ ' + (ses.next ? ('next: ' + ses.next) : (ses.label||'WAITING'));
+    sb.className = 'badge off';
+  }
   el('sMode').textContent = s.mode;
   el('sEquity').textContent = s.equity==null?'—':'$'+fmt(s.equity);
   el('sScan').textContent = s.last_scan||'—';

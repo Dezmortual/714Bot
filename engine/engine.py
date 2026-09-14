@@ -45,6 +45,38 @@ def in_session(cfg, now_utc):
     return False
 
 
+def session_status(cfg, now_utc):
+    """Return a dict describing the current + next session window (for the
+    dashboard), in the strategy's timezone."""
+    tz = pytz.timezone(cfg["strategy"].get("session_timezone", "Africa/Johannesburg"))
+    local = now_utc.astimezone(tz)
+    windows = cfg["strategy"].get("session_windows", [])
+    if not cfg["strategy"].get("use_session_filter", True) or not windows:
+        return {"in_session": True, "label": "always active", "next": None}
+
+    hhmm = local.strftime("%H:%M")
+    now_min = int(hhmm[:2]) * 60 + int(hhmm[3:])
+
+    # current window?
+    for w in windows:
+        a, b = w.split("-")
+        a_min = int(a[:2]) * 60 + int(a[3:])
+        b_min = int(b[:2]) * 60 + int(b[3:])
+        if a_min <= now_min <= b_min:
+            return {"in_session": True, "label": f"trading window {w}", "next": None}
+
+    # next upcoming window (today)
+    for w in windows:
+        a, _ = w.split("-")
+        a_min = int(a[:2]) * 60 + int(a[3:])
+        if a_min > now_min:
+            return {"in_session": False, "label": "waiting", "next": w}
+
+    # all passed today -> first window tomorrow
+    return {"in_session": False, "label": "waiting (all windows passed today)",
+            "next": windows[0] + " (tomorrow)"}
+
+
 class Engine:
     def __init__(self, cfg):
         self.cfg = cfg
@@ -260,6 +292,9 @@ class Engine:
     # ---------------------------------------------------------
     def tick(self):
         now = datetime.now(timezone.utc)
+        # Publish session status for the dashboard (always).
+        STATE.set(session=session_status(self.cfg, now))
+
         # In simulation (mock data) the synthetic series isn't tied to real
         # session hours, so we skip gating there; real mode respects windows.
         session_open = in_session(self.cfg, now) or isinstance(self.broker, MockBroker)

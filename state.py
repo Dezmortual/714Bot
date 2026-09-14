@@ -23,6 +23,7 @@ class BotState:
         self.orders = []           # recent orders (max 200)
         self.log = []              # human-readable log lines (max 500)
         self.stats = {"wins": 0, "losses": 0, "breakeven": 0, "pnl": 0.0}
+        self.session = {"in_session": False, "label": "waiting", "next": None}
 
     # ---- helpers ----
     def _now(self):
@@ -101,6 +102,7 @@ class BotState:
                 "orders": list(self.orders),
                 "log": list(self.log),
                 "stats": dict(self.stats),
+                "session": dict(self.session),
             }
 
 
