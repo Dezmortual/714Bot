@@ -133,22 +133,25 @@ class Broker:
 
     # ---- orders / positions ----
     def submit_market(self, symbol, side, qty):
+        # Crypto does not support TimeInForce.DAY — must use GTC.
+        tif = TimeInForce.GTC if self.is_crypto(symbol) else TimeInForce.DAY
         req = MarketOrderRequest(
             symbol=symbol,
             qty=qty,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=tif,
         )
         return self.trading.submit_order(req)
 
     def submit_limit(self, symbol, side, qty, limit_price):
         from alpaca.trading.requests import LimitOrderRequest
+        tif = TimeInForce.GTC if self.is_crypto(symbol) else TimeInForce.DAY
         req = LimitOrderRequest(
             symbol=symbol,
             qty=qty,
             side=OrderSide.BUY if side == "buy" else OrderSide.SELL,
             limit_price=round(limit_price, 2),
-            time_in_force=TimeInForce.DAY,
+            time_in_force=tif,
         )
         return self.trading.submit_order(req)
 
