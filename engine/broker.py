@@ -187,13 +187,17 @@ class Broker:
     def open_positions(self):
         """Return a normalized list of currently-open Alpaca positions:
         [{symbol, side, qty, entry}] so the engine can reconcile after a
-        restart instead of re-entering and duplicating positions."""
+        restart instead of re-entering and duplicating positions.
+        Symbol is normalized to "BASE/USD" form to match the config."""
         out = []
         try:
             for p in self.trading.get_all_positions():
-                side = "buy" if str(getattr(p, "side", "long")).lower() == "long" else "sell"
+                # p.side is an enum; use .value ("long"/"short")
+                side_raw = getattr(getattr(p, "side", None), "value", None) or str(getattr(p, "side", "long"))
+                side = "buy" if str(side_raw).lower() == "long" else "sell"
+                sym = self._normalize_symbol(p.symbol)
                 out.append({
-                    "symbol": p.symbol,
+                    "symbol": sym,
                     "side": side,
                     "qty": float(p.qty),
                     "entry": float(p.avg_entry_price),
@@ -201,6 +205,13 @@ class Broker:
         except Exception as e:
             self.state.add_log(f"[broker] failed to list positions: {e}", "WARN")
         return out
+
+    def _normalize_symbol(self, symbol):
+        """Convert Alpaca's crypto form 'DOGEUSD' -> 'DOGE/USD'. Leaves
+        stocks unchanged."""
+        if symbol and "/" not in symbol and symbol.upper().endswith("USD") and len(symbol) > 3:
+            return symbol[:-3] + "/USD"
+        return symbol
 
     def cancel_open_orders(self, symbol=None):
         orders = self.trading.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))

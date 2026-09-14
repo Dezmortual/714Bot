@@ -91,11 +91,12 @@ class Engine:
 
     def _pip_value(self, symbol, price):
         """Pip size for a symbol. Stocks use the configured absolute pip
-        (default $0.01); crypto uses a relative pip (~0.05% of price) so
-        targets/breakeven scale sensibly for BTC/ETH/SOL etc."""
+        (default $0.01). Crypto uses a RELATIVE pip (0.05% of price) with
+        NO absolute floor, so it scales correctly for cheap coins like DOGE
+        (~$0.08) as well as expensive ones like BTC (~$60k)."""
         base = self.cfg["risk"].get("pip_value", 0.01)
         if "/" in symbol:
-            return max(price * 0.0005, 0.01)
+            return price * 0.0005
         return base
 
     # ---------------------------------------------------------
