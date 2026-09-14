@@ -15,11 +15,17 @@ strategy:
   # Symbols to watch. The 714 method is a forex/synthetic-index strategy;
   # on Alpaca we trade liquid US stocks + 24/7 crypto so the bot has data
   # during every session window (stocks only trade 09:30-16:00 NY).
-  # Crypto symbols use the "BTC/USD" format.
+  # Crypto symbols use the "BTC/USD" format. NOTE: Alpaca does not allow
+  # shorting crypto, so crypto signals are BUY-only (W formations).
   symbols:
     - BTC/USD
     - ETH/USD
     - SOL/USD
+    - AVAX/USD
+    - LINK/USD
+    - DOGE/USD
+    - ADA/USD
+    - MATIC/USD
     - AAPL
     - MSFT
     - SPY
