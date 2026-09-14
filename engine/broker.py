@@ -164,8 +164,16 @@ class Broker:
         except Exception:
             return None
 
-    def close_position(self, symbol):
-        self.trading.close_position(symbol, ClosePositionRequest())
+    def close_position(self, symbol, percentage=None):
+        req = ClosePositionRequest(
+            percentage=(percentage if percentage is not None else "100")
+        )
+        self.trading.close_position(symbol, req)
+
+    def reduce_position(self, symbol, fraction):
+        """Close a fraction (0.0-1.0) of the position (partial profit)."""
+        pct = str(max(1, int(round(fraction * 100))))
+        self.close_position(symbol, percentage=pct)
 
     def cancel_open_orders(self, symbol=None):
         orders = self.trading.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
