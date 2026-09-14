@@ -17,8 +17,11 @@ try:
         ClosePositionRequest,
     )
     from alpaca.trading.enums import OrderSide, TimeInForce, QueryOrderStatus
-    from alpaca.data.historical import StockHistoricalDataClient
-    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.historical import (
+        StockHistoricalDataClient,
+        CryptoHistoricalDataClient,
+    )
+    from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
     from alpaca.data.timeframe import TimeFrame
     ALPACA_AVAILABLE = True
 except Exception:  # pragma: no cover
@@ -67,7 +70,11 @@ class Broker:
                 "Re-copy the full secret key.", "WARN")
         self.trading = TradingClient(key, secret, paper=(self.mode == "paper"))
         self.data = StockHistoricalDataClient(key, secret)
+        self.crypto_data = CryptoHistoricalDataClient(key, secret)
         self.state = state
+
+    def is_crypto(self, symbol):
+        return "/" in (symbol or "")
 
     # ---- account ----
     def equity(self):
@@ -87,32 +94,35 @@ class Broker:
 
     # ---- market data ----
     def bars(self, symbol, timeframe="15Min", limit=100):
-        """Return a pandas DataFrame of OHLCV bars."""
+        """Return a pandas DataFrame of OHLCV bars (stocks or crypto)."""
         tf = TIMEFRAME_MAP.get(timeframe, TimeFrame.Minute)
-        unit = 15 if timeframe == "15Min" else (5 if timeframe == "5Min" else 1)
-        req = StockBarsRequest(
-            symbol_or_symbols=symbol,
-            timeframe=tf,
-            adjustment="raw",
-            limit=limit,
-        )
-        bars = self.data.get_stock_bars(req).df
+        if self.is_crypto(symbol):
+            req = CryptoBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=tf,
+                limit=limit,
+            )
+            bars = self.crypto_data.get_crypto_bars(req).df
+        else:
+            req = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=tf,
+                adjustment="raw",
+                limit=limit,
+            )
+            bars = self.data.get_stock_bars(req).df
         if bars is None or bars.empty:
             return None
         df = bars.reset_index()
-        df = df.rename(
-            columns={
-                "timestamp": "ts",
-                "open": "open",
-                "high": "high",
-                "low": "low",
-                "close": "close",
-                "volume": "volume",
-            }
-        )
-        df = df[["ts", "open", "high", "low", "close", "volume"]].copy()
-        df["ts"] = pd.to_datetime(df["ts"], utc=True)
-        df = df.set_index("ts")
+        # crypto bars carry a 'symbol' column; drop non-OHLCV columns
+        keep = ["open", "high", "low", "close", "volume"]
+        if "timestamp" in df.columns:
+            keep = ["timestamp"] + keep
+        df = df[[c for c in keep if c in df.columns]].copy()
+        if "timestamp" in df.columns:
+            df = df.rename(columns={"timestamp": "ts"})
+            df["ts"] = pd.to_datetime(df["ts"], utc=True)
+            df = df.set_index("ts")
         return df
 
     def latest_price(self, symbol):

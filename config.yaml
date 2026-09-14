@@ -13,10 +13,13 @@ broker:
 # ---- Strategy core settings ----
 strategy:
   # Symbols to watch. The 714 method is a forex/synthetic-index strategy;
-  # on Alpaca we trade liquid stocks / crypto where the same
-  # structure-based logic (HH/HL/LL/LH, W & M formations, breaks of
-  # structure, order blocks) applies.
+  # on Alpaca we trade liquid US stocks + 24/7 crypto so the bot has data
+  # during every session window (stocks only trade 09:30-16:00 NY).
+  # Crypto symbols use the "BTC/USD" format.
   symbols:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
     - AAPL
     - MSFT
     - SPY

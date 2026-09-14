@@ -59,6 +59,15 @@ class Engine:
     def _log(self, msg, level="INFO"):
         STATE.add_log(msg, level)
 
+    def _pip_value(self, symbol, price):
+        """Pip size for a symbol. Stocks use the configured absolute pip
+        (default $0.01); crypto uses a relative pip (~0.05% of price) so
+        targets/breakeven scale sensibly for BTC/ETH/SOL etc."""
+        base = self.cfg["risk"].get("pip_value", 0.01)
+        if "/" in symbol:
+            return max(price * 0.0005, 0.01)
+        return base
+
     # ---------------------------------------------------------
     def scan_symbol(self, symbol):
         cfg = self.cfg
@@ -90,8 +99,8 @@ class Engine:
         qty = position_size(equity, entry, stop, cfg["risk"])
         if qty <= 0:
             return
-        # target based on configured pips
-        pip_value = cfg["risk"].get("pip_value", 0.01)
+        # target based on configured pips (scaled per asset type)
+        pip_value = self._pip_value(symbol, entry)
         tp_pips = cfg["risk"].get("target_pips", 50)
         target = entry + tp_pips * pip_value if sig["side"] == "buy" else entry - tp_pips * pip_value
 
@@ -119,7 +128,7 @@ class Engine:
         if px is None:
             return
         cfg = self.cfg
-        pip_value = cfg["risk"].get("pip_value", 0.01)
+        pip_value = self._pip_value(symbol, px)
         entry = m["entry"]
         side = m["side"]
         move = (px - entry) if side == "buy" else (entry - px)
