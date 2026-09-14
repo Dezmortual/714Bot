@@ -73,6 +73,13 @@ class MockBroker:
                 pnl += (p["entry"] - px) * p["qty"]
         return self._equity + pnl
 
+    def available_cash(self):
+        # mock: equity minus notional committed to open positions
+        used = 0.0
+        for sym, p in self._positions.items():
+            used += p["entry"] * p["qty"]
+        return max(self._equity - used, 0.0)
+
     def bars(self, symbol, timeframe="15Min", limit=100):
         """Return a DataFrame of the most recent `limit` bars, appending a
         fresh bar each call so price 'moves' forward over time."""

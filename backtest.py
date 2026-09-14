@@ -59,11 +59,17 @@ def run(symbol, cfg, bars_df):
         # ---- enter new ----
         if pos is None and sig:
             entry = sig["entry"]
-            stop = sig["stop"]
+            # R-multiple stop/target (matches live engine)
+            swing_dist = abs(entry - sig["stop"])
+            a = atr(df, risk.get("atr_period", 14))
+            atr_val = float(a.iloc[-1]) if a.notna().iloc[-1] else 0.0
+            stop_dist = max(swing_dist, atr_val * risk.get("atr_stop_mult", 2.0),
+                            entry * risk.get("min_stop_pct", 0.003))
+            rr = risk.get("risk_reward_ratio", 2.0)
+            stop = entry - stop_dist if sig["side"] == "buy" else entry + stop_dist
+            target = entry + stop_dist * rr if sig["side"] == "buy" else entry - stop_dist * rr
             qty = position_size(equity, entry, stop, risk)
             if qty > 0:
-                tp = risk.get("target_pips", 50) * risk.get("pip_value", 0.01)
-                target = entry + tp if sig["side"] == "buy" else entry - tp
                 pos = {"entry": entry, "qty": qty, "side": sig["side"],
                        "stop": stop, "target": target}
 

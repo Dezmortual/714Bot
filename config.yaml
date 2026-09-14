@@ -53,30 +53,33 @@ strategy:
   require_break_of_structure: true
   w_formation_tolerance: 0.0005   # % price tolerance for double tops/bottoms
 
-# ---- Risk management (from the book's money-management chapter) ----
+# ---- Risk management (R-multiple based — fixes the inverted risk:reward) ----
 risk:
   risk_mode: percent       # percent | fixed_pips | atr
   risk_percent: 1.0        # % of account equity risked per trade
   max_lot_percent: 5.0     # cap position size as % of equity (anti-overleverage)
   max_open_trades: 3
-  min_stop_pct: 0.005      # min stop distance as % of price (prevents huge qty)
+  min_stop_pct: 0.003      # absolute min stop distance as % of price
 
-  # "pip" sizing (used for targets/breakeven, converted to price distance).
-  # For stocks set to a price step; for FX-like assets set 0.0001.
-  pip_value: 0.01
-
-  # Targets & management (from "Trade Management" page):
-  breakeven_after_pips: 20   # move SL to entry after +20 "pips"
-  partial_profit_pips: 30    # take partial at +30
-  partial_fraction: 0.5      # close 50% of position at partial
-  lock_pips: 20              # after partial, lock remaining SL at +20
-  target_pips: 50            # final take-profit (the "50 pip setup")
-  stop_loss_pips: 30         # initial stop (other side of range by default)
-
-  # If risk_mode == atr, use ATR multiples instead of pips:
+  # ---- Stop (option 2: ATR-based) ----
+  # Stop distance = max(swing-pattern stop, ATR * atr_stop_mult). Keeps
+  # stops from being too tight in volatile markets (which caused churn).
   atr_period: 14
-  atr_stop_mult: 1.5
-  atr_target_mult: 2.5
+  atr_stop_mult: 2.0       # minimum stop = ATR x this
+
+  # ---- Target (option 1: risk:reward) ----
+  # Target = stop distance x this ratio, so a win always pays >= 2x a loss.
+  # (The old fixed "50 pip" target was inverted: $2 risk for $0.50 reward.)
+  risk_reward_ratio: 2.0
+
+  # ---- Trade management in R-multiples (1R = stop distance) ----
+  breakeven_r: 0.5         # move SL to breakeven at +0.5R profit
+  partial_r: 1.0           # take partial at +1.0R
+  partial_fraction: 0.5    # close 50% of position at partial
+  lock_r: 0.5              # after partial, lock remaining SL at +0.5R
+
+  # Legacy pip value (kept for reference / helpers)
+  pip_value: 0.01
 
 # ---- Engine ----
 engine:

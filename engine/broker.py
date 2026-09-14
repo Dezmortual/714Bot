@@ -27,13 +27,16 @@ try:
 except Exception:  # pragma: no cover
     ALPACA_AVAILABLE = False
 
-TIMEFRAME_MAP = {
-    "1Min": TimeFrame.Minute,
-    "5Min": TimeFrame.Minute,
-    "15Min": TimeFrame.Minute,
-    "1Hour": TimeFrame.Hour,
-    "1Day": TimeFrame.Day,
-}
+if ALPACA_AVAILABLE:
+    TIMEFRAME_MAP = {
+        "1Min": TimeFrame.Minute,
+        "5Min": TimeFrame.Minute,
+        "15Min": TimeFrame.Minute,
+        "1Hour": TimeFrame.Hour,
+        "1Day": TimeFrame.Day,
+    }
+else:
+    TIMEFRAME_MAP = {}
 
 
 class Broker:
@@ -91,6 +94,12 @@ class Broker:
                     "from the same generation."
                 ) from e
             raise
+
+    def available_cash(self):
+        """Free cash available for new orders (crypto is non-marginable,
+        so this is the binding constraint for crypto entries)."""
+        acct = self.trading.get_account()
+        return float(acct.cash)
 
     # ---- market data ----
     def bars(self, symbol, timeframe="15Min", limit=100):

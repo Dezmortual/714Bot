@@ -108,12 +108,16 @@ class Engine:
                 sym = p["symbol"]
                 if sym in self._mgmt:
                     continue
-                pip_value = self._pip_value(sym, p["entry"])
-                tp_pips = self.cfg["risk"].get("target_pips", 50)
-                target = p["entry"] + tp_pips * pip_value if p["side"] == "buy" else p["entry"] - tp_pips * pip_value
+                # Reconciled positions get a conservative stop/target derived
+                # from a 1% price distance so they're safely managed until a
+                # fresh signal takes over.
+                dist = p["entry"] * 0.01
+                rr = self.cfg["risk"].get("risk_reward_ratio", 2.0)
+                stop = p["entry"] - dist if p["side"] == "buy" else p["entry"] + dist
+                target = p["entry"] + dist * rr if p["side"] == "buy" else p["entry"] - dist * rr
                 self._mgmt[sym] = {
                     "side": p["side"], "entry": p["entry"], "qty": p["qty"],
-                    "stop": p["entry"], "target": target,
+                    "stop": stop, "target": target, "stop_dist": dist,
                     "breakeven_done": True, "partial_done": True,
                     "lock": p["entry"], "open_ts": time.time(),
                 }
@@ -148,6 +152,9 @@ class Engine:
         if sig:
             sig["symbol"] = symbol
             sig["ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            # attach ATR so the engine can size a volatility-based stop
+            a = atr(df, cfg["risk"].get("atr_period", 14))
+            sig["atr"] = float(a.iloc[-1]) if a.notna().iloc[-1] else None
             return sig
         return None
 
@@ -175,39 +182,68 @@ class Engine:
 
         equity = self.broker.equity()
         entry = sig["entry"]
-        stop = sig["stop"]
-        if stop <= 0 or entry <= 0:
+        swing_stop = sig["stop"]
+        side = sig["side"]
+        if swing_stop <= 0 or entry <= 0:
             return
 
-        # Enforce a minimum stop distance so a too-tight swing stop doesn't
-        # produce an absurd position size (e.g. 50 SOL on one order).
-        min_dist = entry * cfg["risk"].get("min_stop_pct", 0.005)
-        if abs(entry - stop) < min_dist:
-            stop = entry - min_dist if sig["side"] == "buy" else entry + min_dist
+        risk_cfg = cfg["risk"]
 
-        qty = position_size(equity, entry, stop, cfg["risk"])
+        # ---- Stop distance (option 2: ATR-based minimum) ----
+        # Start with the swing-pattern stop, then enforce a floor of
+        # ATR * atr_stop_mult so stops aren't too tight (volatility-aware).
+        swing_dist = abs(entry - swing_stop)
+        atr_val = sig.get("atr") or 0.0
+        atr_min = atr_val * risk_cfg.get("atr_stop_mult", 2.0)
+        pct_min = entry * risk_cfg.get("min_stop_pct", 0.003)
+        stop_dist = max(swing_dist, atr_min, pct_min)
+
+        stop = entry - stop_dist if side == "buy" else entry + stop_dist
+
+        # ---- Target (option 1: risk:reward) ----
+        rr = risk_cfg.get("risk_reward_ratio", 2.0)
+        target = entry + stop_dist * rr if side == "buy" else entry - stop_dist * rr
+
+        # ---- Position size ----
+        qty = position_size(equity, entry, stop, risk_cfg)
         if qty <= 0:
             return
-        # target based on configured pips (scaled per asset type)
-        pip_value = self._pip_value(symbol, entry)
-        tp_pips = cfg["risk"].get("target_pips", 50)
-        target = entry + tp_pips * pip_value if sig["side"] == "buy" else entry - tp_pips * pip_value
 
-        order = self.broker.submit_market(symbol, sig["side"], round(qty, 6))
+        # ---- Option 3: buying-power guard ----
+        # Scale back (or skip) if the order's notional exceeds available
+        # cash. Crypto is non-marginable and ties up cash 1:1, which is
+        # what caused the "insufficient balance for USD" rejections.
+        try:
+            cash = self.broker.available_cash()
+        except Exception:
+            cash = None
+        if cash is not None:
+            notional = qty * entry
+            if cash <= 0:
+                self._log(f"skip {symbol} — no available cash", "WARN")
+                return
+            if notional > cash * 0.98:
+                qty = (cash * 0.98) / entry
+                if qty <= 0:
+                    return
+                self._log(f"{symbol} scaled down to available cash: qty={qty:.4f}")
+
+        order = self.broker.submit_market(symbol, side, round(qty, 6))
         self._mgmt[symbol] = {
-            "side": sig["side"], "entry": entry, "qty": qty, "stop": stop,
-            "target": target, "breakeven_done": False, "partial_done": False,
+            "side": side, "entry": entry, "qty": qty, "stop": stop,
+            "target": target, "stop_dist": stop_dist,
+            "breakeven_done": False, "partial_done": False,
             "lock": None, "open_ts": time.time(),
         }
         STATE.add_order({
             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-            "symbol": symbol, "side": sig["side"], "qty": round(qty, 6),
+            "symbol": symbol, "side": side, "qty": round(qty, 6),
             "entry": round(entry, 6), "stop": round(stop, 6),
             "target": round(target, 6), "action": "ENTER",
             "reason": sig.get("reason", ""),
         })
-        self._log(f"ENTER {sig['side'].upper()} {symbol} qty={qty:.4f} @ {entry:.4f} "
-                  f"SL={stop:.4f} TP={target:.4f} ({sig.get('reason','')})")
+        self._log(f"ENTER {side.upper()} {symbol} qty={qty:.4f} @ {entry:.4f} "
+                  f"SL={stop:.4f} TP={target:.4f} (R={rr}, dist={stop_dist:.4f})")
 
     def manage(self, symbol):
         m = self._mgmt.get(symbol)
@@ -217,11 +253,13 @@ class Engine:
         if px is None:
             return
         cfg = self.cfg
-        pip_value = self._pip_value(symbol, px)
         entry = m["entry"]
         side = m["side"]
+        stop_dist = m.get("stop_dist") or abs(entry - m["stop"])
+        if stop_dist <= 0:
+            stop_dist = 1e-9
         move = (px - entry) if side == "buy" else (entry - px)
-        move_pips = pip_distance(entry, px, pip_value)
+        move_r = move / stop_dist  # profit/loss in R-multiples
 
         # 1) initial stop loss
         if (side == "buy" and px <= m["stop"]) or (side == "sell" and px >= m["stop"]):
@@ -233,26 +271,25 @@ class Engine:
             self._mgmt.pop(symbol, None)
             return
 
-        # 2) move stop to breakeven after +N pips
-        be_pips = cfg["risk"].get("breakeven_after_pips", 20)
-        if not m["breakeven_done"] and move_pips >= be_pips:
+        # 2) move stop to breakeven at +breakeven_r R
+        be_r = cfg["risk"].get("breakeven_r", 0.5)
+        if not m["breakeven_done"] and move_r >= be_r:
             m["stop"] = entry
             m["breakeven_done"] = True
-            self._log(f"BREAKEVEN {symbol} — SL moved to entry after +{be_pips} pips")
+            self._log(f"BREAKEVEN {symbol} — SL to entry at +{be_r}R")
 
-        # 3) partial profit at +N pips
-        pp_pips = cfg["risk"].get("partial_profit_pips", 30)
+        # 3) partial profit at +partial_r R
+        pp_r = cfg["risk"].get("partial_r", 1.0)
         frac = cfg["risk"].get("partial_fraction", 0.5)
-        if not m["partial_done"] and move_pips >= pp_pips:
+        if not m["partial_done"] and move_r >= pp_r:
             m["partial_done"] = True
-            lock_pips = cfg["risk"].get("lock_pips", 20)
-            m["lock"] = entry + lock_pips * pip_value if side == "buy" else entry - lock_pips * pip_value
-            # reduce position
+            lock_r = cfg["risk"].get("lock_r", 0.5)
+            m["lock"] = entry + lock_r * stop_dist if side == "buy" else entry - lock_r * stop_dist
             if hasattr(self.broker, "reduce_position"):
                 self.broker.reduce_position(symbol, frac)
             else:
-                self.broker.close_position(symbol)  # fallback: full close
-            self._log(f"PARTIAL {symbol} — took {frac*100:.0f}% at +{pp_pips} pips, SL locked at +{lock_pips}")
+                self.broker.close_position(symbol)
+            self._log(f"PARTIAL {symbol} — took {frac*100:.0f}% at +{pp_r}R, SL locked at +{lock_r}R")
 
         # 4) locked stop after partial
         if m["lock"] is not None:
