@@ -1,0 +1,80 @@
+# ============================================================
+#  714 METHOD TRADING BOT  —  configuration
+#  Based on "The 714 Method" by Mashaya Mthethwa / Forxee Group
+# ============================================================
+
+# ---- Broker ----
+broker:
+  # alpaca only supports US equities + crypto. Set keys via env vars
+  # ALPACA_API_KEY / ALPACA_SECRET_KEY, or a .env file.
+  mode: paper            # paper | live
+  data_feed: iex         # iex (free) | sip (paid)
+
+# ---- Strategy core settings ----
+strategy:
+  # Symbols to watch. The 714 method is a forex/synthetic-index strategy;
+  # on Alpaca we trade liquid stocks / crypto where the same
+  # structure-based logic (HH/HL/LL/LH, W & M formations, breaks of
+  # structure, order blocks) applies.
+  symbols:
+    - AAPL
+    - MSFT
+    - SPY
+
+  timeframe: 15Min       # candles used for structure (M15 per the book)
+
+  # Session filter (the book uses 07h00 / 13h00 / 16h00 SAST + 09-11,
+  # 14-16, 18-20 windows). Times are interpreted in the timezone below.
+  session_timezone: "Africa/Johannesburg"
+  use_session_filter: true
+  session_windows:       # HH:MM-HH:MM (SAST) when the bot may trade
+    - "09:00-11:00"
+    - "14:00-16:00"
+    - "18:00-20:00"
+
+  # Swing-point detection: a candle is a swing high/low if it is the
+  # extreme among `swing_lookback` candles on each side.
+  swing_lookback: 2
+
+  # ---- Entry criteria (mirrors the book's 8-step setups) ----
+  # SELL: London open -> prior Higher Low -> market rises -> "M"
+  #       (double top) -> break of structure -> new Lower Low -> OB sell
+  # BUY : London open -> prior Lower High -> market drops -> "W"
+  #       (double bottom) -> break of structure -> new Higher High -> OB buy
+  require_break_of_structure: true
+  w_formation_tolerance: 0.0005   # % price tolerance for double tops/bottoms
+
+# ---- Risk management (from the book's money-management chapter) ----
+risk:
+  risk_mode: percent       # percent | fixed_pips | atr
+  risk_percent: 1.0        # % of account equity risked per trade
+  max_lot_percent: 5.0     # cap position size as % of equity (anti-overleverage)
+  max_open_trades: 3
+
+  # "pip" sizing (used for targets/breakeven, converted to price distance).
+  # For stocks set to a price step; for FX-like assets set 0.0001.
+  pip_value: 0.01
+
+  # Targets & management (from "Trade Management" page):
+  breakeven_after_pips: 20   # move SL to entry after +20 "pips"
+  partial_profit_pips: 30    # take partial at +30
+  partial_fraction: 0.5      # close 50% of position at partial
+  lock_pips: 20              # after partial, lock remaining SL at +20
+  target_pips: 50            # final take-profit (the "50 pip setup")
+  stop_loss_pips: 30         # initial stop (other side of range by default)
+
+  # If risk_mode == atr, use ATR multiples instead of pips:
+  atr_period: 14
+  atr_stop_mult: 1.5
+  atr_target_mult: 2.5
+
+# ---- Engine ----
+engine:
+  poll_seconds: 15          # how often the loop checks candles/sessions
+  candle_warmup: 60         # minimum candles loaded before signals
+  log_file: data/trades.csv
+
+# ---- Dashboard ----
+dashboard:
+  host: 0.0.0.0
+  port: 8000

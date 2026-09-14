@@ -1,0 +1,30 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+build/
+dist/
+
+# ---- Secrets (NEVER commit these) ----
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+
+# ---- Runtime data ----
+data/*.csv
+logs/
+*.log
+
+# ---- IDE / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- Misc ----
+.cache/
