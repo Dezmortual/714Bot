@@ -1,12 +1,14 @@
-# Render "Blueprint" — one-click deploy via render.com
-# Note: Render's free tier sleeps after inactivity, so for an always-on
-# trading bot use a paid instance (Starter) or a VPS instead.
+# Render "Blueprint" — deploy via render.com
+# NOTE: plan defaults to "free". The FREE tier sleeps after ~15 min of
+# inactivity, which is NOT suitable for a live trading bot (it would miss
+# session windows). For real 24/7 trading, change this to "starter" in the
+# Render dashboard, or use an always-on VPS.
 
 services:
   - type: web
     name: 714-method-bot
     runtime: python
-    plan: starter            # always-on (free tier sleeps — not ideal for a bot)
+    plan: free              # free (sleeps) | starter (always-on, ~$7/mo)
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT"
     envVars:

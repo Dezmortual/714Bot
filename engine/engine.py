@@ -244,4 +244,11 @@ class Engine:
 def load_config(path="config.yaml"):
     import yaml
     with open(path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    # Allow overriding broker mode via environment variable (e.g. set
+    # BROKER_MODE=paper or BROKER_MODE=live in Render's dashboard) so you
+    # can toggle paper/live without editing files or redeploying code.
+    mode = os.getenv("BROKER_MODE")
+    if mode and mode.strip().lower() in ("paper", "live"):
+        cfg["broker"]["mode"] = mode.strip().lower()
+    return cfg
