@@ -46,14 +46,44 @@ class Broker:
                 "Set ALPACA_API_KEY and ALPACA_SECRET_KEY (env or .env file)"
             )
         self.mode = cfg["broker"]["mode"]
+        # --- self-diagnose key/mode mismatch ---
+        key_prefix = (key or "")[:2].upper()
+        if key_prefix == "PK" and self.mode != "paper":
+            state.add_log(
+                f"WARNING: you set mode={self.mode} but your key starts with 'PK' "
+                "(a PAPER key). Paper keys only work in paper mode.", "WARN")
+        if key_prefix == "AK" and self.mode != "live":
+            state.add_log(
+                f"WARNING: you set mode={self.mode} but your key starts with 'AK' "
+                "(a LIVE key). Live keys only work in live mode.", "WARN")
+        if key_prefix not in ("PK", "AK"):
+            state.add_log(
+                f"WARNING: your API key starts with '{key_prefix}' — expected 'PK' "
+                "(paper) or 'AK' (live). Double-check you pasted the Key ID "
+                "correctly.", "WARN")
+        if len((secret or "").strip()) < 20:
+            state.add_log(
+                "WARNING: your secret key looks too short — it may be truncated. "
+                "Re-copy the full secret key.", "WARN")
         self.trading = TradingClient(key, secret, paper=(self.mode == "paper"))
         self.data = StockHistoricalDataClient(key, secret)
         self.state = state
 
     # ---- account ----
     def equity(self):
-        acct = self.trading.get_account()
-        return float(acct.equity)
+        try:
+            acct = self.trading.get_account()
+            return float(acct.equity)
+        except Exception as e:
+            msg = str(e)
+            if "401" in msg or "not authorized" in msg:
+                raise RuntimeError(
+                    "Alpaca rejected your credentials (401). Check: (1) key starts "
+                    "with PK for paper / AK for live, (2) the secret key is pasted "
+                    "in full with no spaces, (3) key+secret are a matching pair "
+                    "from the same generation."
+                ) from e
+            raise
 
     # ---- market data ----
     def bars(self, symbol, timeframe="15Min", limit=100):
