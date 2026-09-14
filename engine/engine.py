@@ -58,6 +58,32 @@ class Engine:
         # signal isn't re-logged/processed every poll.
         self._signal_cooldown = {}
         self._cooldown_secs = cfg["engine"].get("signal_cooldown_secs", 300)
+        self._reconcile_positions()
+
+    def _reconcile_positions(self):
+        """Adopt any positions already open at the broker (e.g. left over
+        from a previous deploy/restart) so we don't duplicate entries and
+        we can keep managing them."""
+        if not hasattr(self.broker, "open_positions"):
+            return
+        try:
+            for p in self.broker.open_positions():
+                sym = p["symbol"]
+                if sym in self._mgmt:
+                    continue
+                pip_value = self._pip_value(sym, p["entry"])
+                tp_pips = self.cfg["risk"].get("target_pips", 50)
+                target = p["entry"] + tp_pips * pip_value if p["side"] == "buy" else p["entry"] - tp_pips * pip_value
+                self._mgmt[sym] = {
+                    "side": p["side"], "entry": p["entry"], "qty": p["qty"],
+                    "stop": p["entry"], "target": target,
+                    "breakeven_done": True, "partial_done": True,
+                    "lock": p["entry"], "open_ts": time.time(),
+                }
+                self._log(f"reconciled existing position {sym} "
+                          f"{p['side']} qty={p['qty']:.4f} @ {p['entry']:.4f}")
+        except Exception as e:
+            self._log(f"position reconcile failed: {e}", "WARN")
 
     # ---------------------------------------------------------
     def _log(self, msg, level="INFO"):

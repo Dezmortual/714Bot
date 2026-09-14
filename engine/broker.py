@@ -168,12 +168,39 @@ class Broker:
         req = ClosePositionRequest(
             percentage=(percentage if percentage is not None else "100")
         )
-        self.trading.close_position(symbol, req)
+        try:
+            self.trading.close_position(symbol, req)
+            return True
+        except Exception as e:
+            msg = str(e)
+            # Position already gone (closed elsewhere / restart) — not an error.
+            if "404" in msg or "Not Found" in msg or "not found" in msg.lower():
+                self.state.add_log(f"[broker] close {symbol}: position already closed", "INFO")
+                return False
+            raise
 
     def reduce_position(self, symbol, fraction):
         """Close a fraction (0.0-1.0) of the position (partial profit)."""
         pct = str(max(1, int(round(fraction * 100))))
-        self.close_position(symbol, percentage=pct)
+        return self.close_position(symbol, percentage=pct)
+
+    def open_positions(self):
+        """Return a normalized list of currently-open Alpaca positions:
+        [{symbol, side, qty, entry}] so the engine can reconcile after a
+        restart instead of re-entering and duplicating positions."""
+        out = []
+        try:
+            for p in self.trading.get_all_positions():
+                side = "buy" if str(getattr(p, "side", "long")).lower() == "long" else "sell"
+                out.append({
+                    "symbol": p.symbol,
+                    "side": side,
+                    "qty": float(p.qty),
+                    "entry": float(p.avg_entry_price),
+                })
+        except Exception as e:
+            self.state.add_log(f"[broker] failed to list positions: {e}", "WARN")
+        return out
 
     def cancel_open_orders(self, symbol=None):
         orders = self.trading.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
