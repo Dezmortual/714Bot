@@ -58,6 +58,11 @@ class Engine:
         # signal isn't re-logged/processed every poll.
         self._signal_cooldown = {}
         self._cooldown_secs = cfg["engine"].get("signal_cooldown_secs", 300)
+        # re-entry cooldown: symbol -> timestamp of last exit, so the bot
+        # doesn't immediately re-buy after a stop/target (prevents wash
+        # trades and churn).
+        self._last_exit = {}
+        self._reentry_secs = cfg["engine"].get("reentry_cooldown_secs", 300)
         self._reconcile_positions()
 
     def _reconcile_positions(self):
@@ -123,6 +128,12 @@ class Engine:
             self._log(f"max open trades reached, skipping {symbol}", "INFO")
             return
 
+        # Re-entry cooldown: don't re-enter a symbol right after exiting it
+        # (prevents buy->stop->buy churn and Alpaca wash-trade rejections).
+        last_exit = self._last_exit.get(symbol, 0)
+        if time.time() - last_exit < self._reentry_secs:
+            return
+
         # Crypto cannot be shorted on Alpaca (you can only sell crypto you
         # already hold). Since we never carry inventory into a short, skip
         # crypto SELL signals entirely — take crypto longs only.
@@ -186,6 +197,7 @@ class Engine:
             pnl = (px - entry) * m["qty"] if side == "buy" else (entry - px) * m["qty"]
             STATE.record_trade(side, m["qty"], entry, px, pnl, "stop loss")
             self._log(f"STOP {symbol} @ {px:.4f} pnl={pnl:.2f}")
+            self._last_exit[symbol] = time.time()
             self._mgmt.pop(symbol, None)
             return
 
@@ -215,6 +227,7 @@ class Engine:
             if (side == "buy" and px <= m["lock"]) or (side == "sell" and px >= m["lock"]):
                 self.broker.close_position(symbol)
                 self._log(f"LOCKED STOP {symbol} @ {px:.4f}")
+                self._last_exit[symbol] = time.time()
                 self._mgmt.pop(symbol, None)
                 return
 
@@ -224,6 +237,7 @@ class Engine:
             pnl = (px - entry) * m["qty"] if side == "buy" else (entry - px) * m["qty"]
             STATE.record_trade(side, m["qty"], entry, px, pnl, "take profit")
             self._log(f"TARGET {symbol} @ {px:.4f} pnl={pnl:.2f}  #KeepItBlue")
+            self._last_exit[symbol] = time.time()
             self._mgmt.pop(symbol, None)
 
     def refresh_positions(self):
