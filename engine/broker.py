@@ -101,6 +101,12 @@ class Broker:
         acct = self.trading.get_account()
         return float(acct.cash)
 
+    def buying_power(self):
+        """Buying power (cash * margin multiplier). The binding constraint
+        for stock orders."""
+        acct = self.trading.get_account()
+        return float(acct.buying_power)
+
     # ---- market data ----
     def bars(self, symbol, timeframe="15Min", limit=100):
         """Return a pandas DataFrame of OHLCV bars (stocks or crypto)."""

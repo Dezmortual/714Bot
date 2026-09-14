@@ -210,23 +210,25 @@ class Engine:
             return
 
         # ---- Option 3: buying-power guard ----
-        # Scale back (or skip) if the order's notional exceeds available
-        # cash. Crypto is non-marginable and ties up cash 1:1, which is
-        # what caused the "insufficient balance for USD" rejections.
+        # Stocks are constrained by buying power (margin); crypto is
+        # constrained by cash (non-marginable). Scale back or skip so we
+        # never hit "insufficient buying power" rejections.
+        is_crypto = "/" in symbol
         try:
-            cash = self.broker.available_cash()
+            funds = self.broker.available_cash() if is_crypto else self.broker.buying_power()
         except Exception:
-            cash = None
-        if cash is not None:
+            funds = None
+        if funds is not None:
             notional = qty * entry
-            if cash <= 0:
-                self._log(f"skip {symbol} — no available cash", "WARN")
+            if funds <= 0:
+                self._log(f"skip {symbol} — no buying power left", "WARN")
                 return
-            if notional > cash * 0.98:
-                qty = (cash * 0.98) / entry
+            if notional > funds * 0.95:
+                qty = (funds * 0.95) / entry
                 if qty <= 0:
+                    self._log(f"skip {symbol} — insufficient buying power", "WARN")
                     return
-                self._log(f"{symbol} scaled down to available cash: qty={qty:.4f}")
+                self._log(f"{symbol} scaled down to buying power: qty={qty:.4f}", "WARN")
 
         order = self.broker.submit_market(symbol, side, round(qty, 6))
         self._mgmt[symbol] = {
@@ -366,8 +368,12 @@ class Engine:
                     if symbol not in self._mgmt:
                         self.enter(sig)
             except Exception as e:
-                self._log(f"error scanning {symbol}: {e}", "ERROR")
-                traceback.print_exc()
+                msg = str(e)
+                if "insufficient buying power" in msg or "insufficient balance" in msg:
+                    self._log(f"LOW FUNDS: {symbol} — insufficient buying power (account needs a reset or free cash)", "WARN")
+                else:
+                    self._log(f"error scanning {symbol}: {e}", "ERROR")
+                    traceback.print_exc()
 
         # manage all open positions
         for s in list(self._mgmt.keys()):

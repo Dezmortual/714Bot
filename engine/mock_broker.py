@@ -80,6 +80,9 @@ class MockBroker:
             used += p["entry"] * p["qty"]
         return max(self._equity - used, 0.0)
 
+    def buying_power(self):
+        return self.available_cash()
+
     def bars(self, symbol, timeframe="15Min", limit=100):
         """Return a DataFrame of the most recent `limit` bars, appending a
         fresh bar each call so price 'moves' forward over time."""
