@@ -17,6 +17,8 @@ credentials.json
 
 # ---- Runtime data ----
 data/*.csv
+data/charts/
+data/backtest_*.png
 logs/
 *.log
 

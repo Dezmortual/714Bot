@@ -38,8 +38,8 @@ live **web dashboard**.
 
 ```
 714bot/
-├── app.py               # Flask dashboard + engine launcher
-├── backtest.py          # offline backtest (mock data or Alpaca bars)
+├── app.py               # Flask dashboard + engine launcher + /backtest
+├── backtest.py          # backtest engine with chart (mock data or Alpaca bars)
 ├── config.yaml          # ALL settings (broker, strategy, risk, sessions)
 ├── requirements.txt
 ├── .env.example         # copy to .env and add your Alpaca keys
@@ -50,8 +50,12 @@ live **web dashboard**.
 │   ├── risk.py          # position sizing + the book's lot-size table
 │   └── engine.py        # main loop, session gating, trade management
 ├── state.py             # thread-safe shared state (engine ↔ dashboard)
-├── templates/index.html # dashboard UI (self-contained, no CDN)
-└── data/trades.csv      # persisted trade log
+├── templates/
+│   ├── index.html       # dashboard UI (self-contained, no CDN)
+│   └── backtest.html    # backtest UI (form + stats + chart + trade table)
+└── data/
+    ├── trades.csv       # persisted trade log
+    └── charts/          # backtest PNG charts (git-ignored)
 ```
 
 ---
@@ -85,12 +89,33 @@ Open **http://localhost:8000**. The engine starts immediately in
 
 The dashboard header shows the current mode (PAPER / LIVE / SIMULATION).
 
-### 4. Backtest
+### 4. Backtest (with chart)
+
+The backtest replays the **exact live logic** — same 60-bar signal window,
+W/M formation entries, ATR stop floor, R:R target, breakeven move, partial
++ locked stop, signal/re-entry cooldowns, crypto buy-only — and reports
+equity, win rate, profit factor, max drawdown, Sharpe and expectancy (R),
+plus a chart.
+
+**Web** — open **http://localhost:8000/backtest** (link in the dashboard
+header): pick a symbol + number of bars, hit *Run backtest*. You get a
+stats row, a 3-panel chart (candles with entry/exit markers + initial
+SL/TP, equity curve, drawdown) and the full trade table.
+
+**CLI**
 
 ```bash
-python backtest.py                 # synthetic data
-python backtest.py --symbol AAPL   # real bars (needs Alpaca keys)
+python backtest.py                          # synthetic data, AAPL, 500 bars
+python backtest.py --symbol BTC/USD         # crypto (buy-only)
+python backtest.py --symbol AAPL --limit 1200 --no-chart
 ```
+
+CLI prints the stats and saves the chart to `data/backtest_<SYMBOL>.png`.
+
+> Data source: real **Alpaca bars** when `ALPACA_API_KEY`/`ALPACA_SECRET_KEY`
+> are set, otherwise the synthetic mock series (labelled "synthetic data"
+> on the chart). The synthetic series is only for exercising the pipeline —
+> backtest on real bars before drawing any conclusions.
 
 ---
 

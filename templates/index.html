@@ -21,6 +21,7 @@
   .badge.on { background:rgba(34,197,94,.15); color:var(--green); border:1px solid rgba(34,197,94,.4); }
   .badge.off { background:rgba(239,68,68,.15); color:var(--red); border:1px solid rgba(239,68,68,.4); }
   .badge.sim { background:rgba(245,158,11,.15); color:var(--amber); border:1px solid rgba(245,158,11,.4); }
+  a.navbtn { text-decoration:none; }
   button { background:var(--blue); color:#fff; border:0; padding:8px 16px; border-radius:8px;
            cursor:pointer; font-weight:600; font-size:13px; }
   button.ghost { background:transparent; border:1px solid var(--line); color:var(--dim); }
@@ -58,6 +59,7 @@
     <span id="sessionBadge" class="badge off">—</span>
     <button id="btnStart">Start</button>
     <button id="btnStop" class="ghost">Stop</button>
+    <a class="navbtn" href="/backtest"><button class="ghost">Backtest</button></a>
   </div>
 </header>
 
