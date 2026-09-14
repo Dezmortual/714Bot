@@ -194,6 +194,15 @@ class Engine:
         # In simulation (mock data) the synthetic series isn't tied to real
         # session hours, so we skip gating there; real mode respects windows.
         session_open = in_session(self.cfg, now) or isinstance(self.broker, MockBroker)
+
+        # Always refresh equity + last-scan timestamp, even when the session
+        # is closed, so the dashboard shows a live account balance.
+        try:
+            eq = self.broker.equity()
+            STATE.set(equity=round(eq, 2), last_scan=now.strftime("%H:%M:%S"))
+        except Exception as e:
+            self._log(f"equity fetch failed: {e}", "ERROR")
+
         if not session_open:
             # still manage open positions, just don't open new ones
             for s in list(self._mgmt.keys()):
