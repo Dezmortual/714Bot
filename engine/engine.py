@@ -91,11 +91,26 @@ class Engine:
         if len(self._mgmt) >= cfg["risk"].get("max_open_trades", 3):
             self._log(f"max open trades reached, skipping {symbol}", "INFO")
             return
+
+        # Crypto cannot be shorted on Alpaca (you can only sell crypto you
+        # already hold). Since we never carry inventory into a short, skip
+        # crypto SELL signals entirely — take crypto longs only.
+        if "/" in symbol and sig["side"] == "sell":
+            self._log(f"skip SELL {symbol} — crypto can't be shorted on Alpaca", "INFO")
+            return
+
         equity = self.broker.equity()
         entry = sig["entry"]
         stop = sig["stop"]
         if stop <= 0 or entry <= 0:
             return
+
+        # Enforce a minimum stop distance so a too-tight swing stop doesn't
+        # produce an absurd position size (e.g. 50 SOL on one order).
+        min_dist = entry * cfg["risk"].get("min_stop_pct", 0.005)
+        if abs(entry - stop) < min_dist:
+            stop = entry - min_dist if sig["side"] == "buy" else entry + min_dist
+
         qty = position_size(equity, entry, stop, cfg["risk"])
         if qty <= 0:
             return

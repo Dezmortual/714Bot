@@ -53,6 +53,7 @@ risk:
   risk_percent: 1.0        # % of account equity risked per trade
   max_lot_percent: 5.0     # cap position size as % of equity (anti-overleverage)
   max_open_trades: 3
+  min_stop_pct: 0.005      # min stop distance as % of price (prevents huge qty)
 
   # "pip" sizing (used for targets/breakeven, converted to price distance).
   # For stocks set to a price step; for FX-like assets set 0.0001.
