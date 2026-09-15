@@ -51,6 +51,7 @@ strategy:
   # BUY : London open -> prior Lower High -> market drops -> "W"
   #       (double bottom) -> break of structure -> new Higher High -> OB buy
   require_break_of_structure: true
+  bos_lookback: 12                # BoS must happen within this many candles
   w_formation_tolerance: 0.0005   # % price tolerance for double tops/bottoms
 
 # ---- Risk management (R-multiple based — fixes the inverted risk:reward) ----

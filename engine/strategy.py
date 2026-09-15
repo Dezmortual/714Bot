@@ -148,6 +148,36 @@ def break_of_structure(df, lookback=2):
 
 
 # ------------------------------------------------------------
+# Recent break of structure (confirmation filter)
+# ------------------------------------------------------------
+def recent_bos(df, lookback=2, window=12):
+    """Detect a break of structure within the last `window` bars.
+
+    A bullish BoS is a candle that CLOSED above the most recent
+    already-confirmed swing high; a bearish BoS closed below the most
+    recent confirmed swing low. Only pivots that were fully formed
+    (`lookback` candles of confirmation) at the time of the break count,
+    so we never look ahead.
+
+    Returns (direction, level, bars_ago) or (None, None, None). The most
+    recent break wins.
+    """
+    zz = zigzag(df, lookback)
+    closes = df["close"].values
+    n = len(df)
+    best = (None, None, None)  # most recent break seen so far
+    for j in range(max(lookback + 1, n - window), n):
+        confirmed = [p for p in zz if p[0] <= j - 1 - lookback]
+        prior_h = [p for p in confirmed if p[2] == "H"]
+        prior_l = [p for p in confirmed if p[2] == "L"]
+        if prior_h and closes[j] > prior_h[-1][1]:
+            best = ("bullish", prior_h[-1][1], n - 1 - j)
+        elif prior_l and closes[j] < prior_l[-1][1]:
+            best = ("bearish", prior_l[-1][1], n - 1 - j)
+    return best
+
+
+# ------------------------------------------------------------
 # ATR
 # ------------------------------------------------------------
 def atr(df, period=14):
@@ -165,6 +195,8 @@ def generate_signal(df, cfg):
     """Return a signal dict or None. cfg is the 'strategy' section."""
     lookback = cfg.get("swing_lookback", 2)
     tol = cfg.get("w_formation_tolerance", 0.0005)
+    require_bos = cfg.get("require_break_of_structure", False)
+    bos_window = cfg.get("bos_lookback", 12)
     if len(df) < lookback * 2 + 6:
         return None
 
@@ -201,6 +233,17 @@ def generate_signal(df, cfg):
             "stop": round(stop, 6),
             "reason": "M double-top reversal",
         }
+
+    # ---- Break-of-structure confirmation (the PDF's 8-step setups: the
+    # pattern alone is not enough — structure must BREAK in the signal's
+    # direction). W -> bullish BoS, M -> bearish BoS. ----
+    if signal and require_bos:
+        bdir, blevel, bago = recent_bos(df, lookback, bos_window)
+        need = "bullish" if signal["side"] == "buy" else "bearish"
+        if bdir != need:
+            return None
+        signal["bos_confirmed"] = True
+        signal["bos_bars_ago"] = bago
 
     if signal:
         signal["bos"] = bos_dir

@@ -1,0 +1,51 @@
+# ============================================================
+#  714 METHOD BOT — continuous integration
+#  On every push/PR: install deps, import-check, run a backtest
+#  smoke test on synthetic data (no API keys needed).
+# ============================================================
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import check
+        run: |
+          python -c "import app; import backtest; \
+            from engine import strategy, engine, risk, broker, mock_broker; \
+            print('imports OK')"
+
+      - name: Backtest smoke test (synthetic data)
+        run: python backtest.py --symbol CISMOKETEST
+
+      - name: Strategy unit sanity
+        run: |
+          python - <<'EOF'
+          from engine.engine import load_config
+          from engine.strategy import generate_signal
+          from engine.mock_broker import MockBroker
+          from state import BotState
+
+          cfg = load_config("config.yaml")
+          mb = MockBroker(cfg, BotState())
+          df = mb.bars("TEST/USD", "15Min", 300)
+          n = sum(1 for i in range(60, len(df))
+                  if generate_signal(df.iloc[: i + 1], cfg["strategy"]))
+          print(f"signals on synthetic series: {n}")
+          assert n > 0, "strategy produced no signals on synthetic W/M series"
+          print("strategy sanity OK")
+          EOF

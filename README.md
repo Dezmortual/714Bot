@@ -18,7 +18,7 @@ live **web dashboard**.
 | HH / HL / LL / LH structure | `strategy.structure_state()` — zigzag pivot filter classifies `bullish` / `bearish` / `range` |
 | "M" double-top → sell | `strategy.detect_m()` → **SELL** signal |
 | "W" double-bottom → buy | `strategy.detect_w()` → **BUY** signal |
-| Break of structure | `strategy.break_of_structure()` |
+| Break of structure | `strategy.break_of_structure()` + `recent_bos()` — with `require_break_of_structure: true` a W/M signal only trades if structure **broke in the signal's direction** within the last `bos_lookback` candles (the PDF's 8-step setup) |
 | "You buy at the Order Block" | entry at the swing low (buy) / high (sell) after the reversal pattern |
 | Move SL to breakeven at +20 pips | `engine.manage()` → `breakeven_after_pips` |
 | Partial profit at +30, lock +20 | `partial_profit_pips`, `lock_pips` |
