@@ -1,9 +1,13 @@
 # Render "Blueprint" — deploy via render.com (New > Blueprint, pick this repo)
 # Runs the trading bot + dashboard 24/7.
 #
-# PLAN: "starter" (~$7/mo) is REQUIRED for 24/7 trading. The "free" tier
-# sleeps after ~15 min of inactivity, which would stop the bot and miss
-# trades. Change to "free" only if you just want to peek at the dashboard.
+# PLAN: "free" ($0) deploys without a credit card. Catch: Render sleeps
+# free services after ~15 min with no visitors, which would pause the bot.
+# Fix (free): point a free uptime monitor (e.g. UptimeRobot, 5-min interval)
+# at your https://xxx.onrender.com URL — the regular pings keep it awake,
+# and the 750 free hours/month cover 24/7. For bulletproof 24/7 with no
+# pings and no restarts, upgrade to "starter" (~$7/mo) in the dashboard
+# (service > Settings > Plan) whenever you're ready.
 #
 # ENV VARS you must set in the Render dashboard (or accept the defaults):
 #   ALPACA_API_KEY / ALPACA_SECRET_KEY — paper keys (start with "PK") from
@@ -19,7 +23,7 @@ services:
   - type: web
     name: 714-medallion-bot
     runtime: python
-    plan: starter           # starter (always-on 24/7, ~$7/mo) | free (sleeps!)
+    plan: free              # free ($0, sleeps when idle — use UptimeRobot pings) | starter (~$7/mo, true 24/7)
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT"
     healthCheckPath: /
