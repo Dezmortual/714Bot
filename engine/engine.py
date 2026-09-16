@@ -14,8 +14,13 @@ import pytz
 
 from state import STATE
 from engine.strategy import generate_signal, atr
+from engine import medallion as medallion_strategy
 from engine.risk import position_size, pip_distance
 from engine.mock_broker import MockBroker
+
+
+# Timeframe string -> minutes per bar (for medallion time stops)
+TF_MINUTES = {"1Min": 1, "5Min": 5, "15Min": 15, "1Hour": 60, "1Day": 1440}
 
 
 def _make_broker(cfg):
@@ -80,12 +85,41 @@ def session_status(cfg, now_utc):
 class Engine:
     def __init__(self, cfg):
         self.cfg = cfg
+        # Strategy method: "714" (default, unchanged behaviour) or
+        # "medallion" (quant mean-reversion + pairs + risk brakes).
+        self._method = str(cfg.get("method", "714")).lower()
         self.broker = _make_broker(cfg)
         self._stop = threading.Event()
+        # Medallion daily kill-switch state
+        self._day = None
+        self._day_start_eq = None
+        self._halted = False
         # per-symbol management state:
         # {symbol: {side, entry, qty, stop, target, breakeven_done, partial_done, lock}}
         self._mgmt = {}
-        self._syms = cfg["strategy"]["symbols"]
+        if self._method == "medallion":
+            self._syms = list(cfg["medallion"].get("symbols")
+                              or cfg["strategy"]["symbols"])
+        else:
+            self._syms = cfg["strategy"]["symbols"]
+        # Medallion: validate configured pairs once (stocks only —
+        # crypto can't be shorted on Alpaca, and pairs need a short leg).
+        self._pairs = []
+        if self._method == "medallion":
+            for p in cfg.get("medallion", {}).get("pairs", []) or []:
+                try:
+                    a, b = p[0], p[1]
+                except Exception:
+                    continue
+                if "/" in a or "/" in b:
+                    self._log(f"pair {a}/{b} skipped — pairs need shorting, "
+                              f"crypto can't be shorted", "WARN")
+                    continue
+                self._pairs.append((a, b))
+            for a, b in self._pairs:
+                for s in (a, b):
+                    if s not in self._syms:
+                        self._syms.append(s)
         # signal cooldown: symbol -> last (side, timestamp) so the same
         # signal isn't re-logged/processed every poll.
         self._signal_cooldown = {}
@@ -143,12 +177,20 @@ class Engine:
     # ---------------------------------------------------------
     def scan_symbol(self, symbol):
         cfg = self.cfg
-        tf = cfg["strategy"]["timeframe"]
-        warmup = cfg["engine"].get("candle_warmup", 60)
+        if self._method == "medallion":
+            tf = cfg["medallion"].get("timeframe", cfg["strategy"]["timeframe"])
+            warmup = max(cfg["engine"].get("candle_warmup", 60),
+                         cfg["medallion"].get("trend_len", 50) + 10)
+        else:
+            tf = cfg["strategy"]["timeframe"]
+            warmup = cfg["engine"].get("candle_warmup", 60)
         df = self.broker.bars(symbol, tf, warmup)
         if df is None or len(df) < warmup // 2:
             return None
-        sig = generate_signal(df, cfg["strategy"])
+        if self._method == "medallion":
+            sig = medallion_strategy.generate_signal(df, cfg["medallion"])
+        else:
+            sig = generate_signal(df, cfg["strategy"])
         if sig:
             sig["symbol"] = symbol
             sig["ts"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -163,7 +205,10 @@ class Engine:
         symbol = sig["symbol"]
         if symbol in self._mgmt:
             return
-        if len(self._mgmt) >= cfg["risk"].get("max_open_trades", 3):
+        max_open = cfg["risk"].get("max_open_trades", 3)
+        if self._method == "medallion":
+            max_open = cfg["medallion"].get("max_open_trades", max_open)
+        if len(self._mgmt) >= max_open:
             self._log(f"max open trades reached, skipping {symbol}", "INFO")
             return
 
@@ -201,13 +246,30 @@ class Engine:
         stop = entry - stop_dist if side == "buy" else entry + stop_dist
 
         # ---- Target (option 1: risk:reward) ----
+        # Medallion mean-reversion overrides this with "exit at the mean".
         rr = risk_cfg.get("risk_reward_ratio", 2.0)
         target = entry + stop_dist * rr if side == "buy" else entry - stop_dist * rr
+        if sig.get("target_override"):
+            try:
+                ov = float(sig["target_override"])
+                if ov > 0 and ((side == "buy" and ov > entry) or
+                               (side == "sell" and ov < entry)):
+                    target = ov
+                    rr = abs(target - entry) / stop_dist
+            except (TypeError, ValueError):
+                pass
 
         # ---- Position size ----
         qty = position_size(equity, entry, stop, risk_cfg)
         if qty <= 0:
             return
+        # Medallion leverage (default 1.0 = NO leverage; keep it there
+        # until the system is proven profitable for 6-12 months).
+        if self._method == "medallion":
+            lev = float(cfg["medallion"].get("leverage", 1.0) or 1.0)
+            if lev > 1.0:
+                cap = equity * (risk_cfg.get("max_lot_percent", 5.0) / 100.0) * lev / entry
+                qty = min(qty * lev, cap)
 
         # ---- Option 3: buying-power guard ----
         # Stocks are constrained by buying power (margin); crypto is
@@ -255,6 +317,24 @@ class Engine:
         if px is None:
             return
         cfg = self.cfg
+        # Medallion time stop: mean-reversion edges decay — if the
+        # snap-back hasn't happened within N bars, exit at market.
+        if self._method == "medallion":
+            max_hold = cfg["medallion"].get("max_hold_bars", 0) or 0
+            if max_hold > 0 and m.get("open_ts"):
+                tf = cfg["medallion"].get("timeframe",
+                                          cfg["strategy"]["timeframe"])
+                hold_min = max_hold * TF_MINUTES.get(tf, 15)
+                if (time.time() - m["open_ts"]) >= hold_min * 60:
+                    self.broker.close_position(symbol)
+                    pnl = ((px - m["entry"]) * m["qty"] if m["side"] == "buy"
+                           else (m["entry"] - px) * m["qty"])
+                    STATE.record_trade(m["side"], m["qty"], m["entry"], px, pnl,
+                                       "time stop")
+                    self._log(f"TIME STOP {symbol} @ {px:.4f} pnl={pnl:.2f}")
+                    self._last_exit[symbol] = time.time()
+                    self._mgmt.pop(symbol, None)
+                    return
         entry = m["entry"]
         side = m["side"]
         stop_dist = m.get("stop_dist") or abs(entry - m["stop"])
@@ -311,6 +391,199 @@ class Engine:
             self._last_exit[symbol] = time.time()
             self._mgmt.pop(symbol, None)
 
+    # ---------------------------------------------------------
+    # Medallion pairs trading (the "Coke vs Pepsi" trade, automated)
+    # ---------------------------------------------------------
+    def scan_pairs(self):
+        """Check each configured pair for a stretched spread and enter a
+        dollar-neutral hedged position: short the winner, long the loser."""
+        import pandas as pd  # noqa: F401 (kept local, matches file style)
+        cfg = self.cfg
+        mcfg = cfg["medallion"]
+        risk_cfg = cfg["risk"]
+        tf = mcfg.get("timeframe", cfg["strategy"]["timeframe"])
+        limit = max(cfg["engine"].get("candle_warmup", 60),
+                    mcfg.get("pair_lookback", 30) + 10)
+        entry_z = mcfg.get("pair_entry_z", 2.0)
+
+        for a, b in self._pairs:
+            key = f"{a}/{b}"
+            if a in self._mgmt or b in self._mgmt:
+                continue  # legs busy (single or pair position)
+            try:
+                df_a = self.broker.bars(a, tf, limit)
+                df_b = self.broker.bars(b, tf, limit)
+            except Exception as e:
+                self._log(f"pairs data failed {key}: {e}", "WARN")
+                continue
+            if df_a is None or df_b is None:
+                continue
+            st = medallion_strategy.pairs_state(df_a["close"], df_b["close"], mcfg)
+            if st is None or not st["tradable"]:
+                continue
+            z = st["z"]
+            if abs(z) < entry_z:
+                continue
+
+            # z > 0: A is the expensive winner -> short A, long B.
+            # z < 0: B is the expensive winner -> long A, short B.
+            legs = (("sell", a, df_a), ("buy", b, df_b)) if z >= 0 else \
+                   (("buy", a, df_a), ("sell", b, df_b))
+
+            # cooldown per pair+direction (stops re-entry spam)
+            direction = "shortA" if z >= 0 else "longA"
+            last = self._signal_cooldown.get(key)
+            if last and last[0] == direction and \
+                    (time.time() - last[1]) < self._cooldown_secs:
+                continue
+
+            # re-entry cooldown per leg
+            if any(time.time() - self._last_exit.get(s, 0) < self._reentry_secs
+                   for _, s, _ in legs):
+                continue
+
+            max_open = mcfg.get("max_open_trades",
+                                risk_cfg.get("max_open_trades", 3))
+            if len(self._mgmt) + 2 > max_open:
+                self._log(f"max open trades reached, skipping pair {key}", "INFO")
+                continue
+
+            # ---- size legs: split risk, then equalize notionals ----
+            equity = self.broker.equity()
+            risk_amount = equity * (risk_cfg.get("risk_percent", 1.0) / 100.0)
+            atr_mult = mcfg.get("atr_stop_mult", 2.0)
+            min_pct = mcfg.get("min_stop_pct", 0.003)
+            qtys, pxs, dists = {}, {}, {}
+            ok = True
+            for side, sym, df in legs:
+                px = float(df["close"].iloc[-1])
+                aa = atr(df, mcfg.get("atr_period", 14))
+                atr_val = float(aa.iloc[-1]) if aa.notna().iloc[-1] else 0.0
+                dist = max(atr_val * atr_mult, px * min_pct)
+                if dist <= 0 or px <= 0:
+                    ok = False
+                    break
+                qtys[sym], pxs[sym], dists[sym] = (risk_amount / 2) / dist, px, dist
+            if not ok:
+                continue
+            # dollar-neutral: both legs carry the same notional
+            notional = min(qtys[a] * pxs[a], qtys[b] * pxs[b])
+            # buying-power guard across BOTH legs
+            try:
+                funds = self.broker.buying_power()
+            except Exception:
+                funds = None
+            if funds is not None:
+                if funds <= 0:
+                    self._log(f"skip pair {key} — no buying power left", "WARN")
+                    continue
+                notional = min(notional, funds * 0.95 / 2)
+            if notional <= 0:
+                continue
+            qtys[a] = notional / pxs[a]
+            qtys[b] = notional / pxs[b]
+
+            # ---- submit both legs (or neither — never a naked leg) ----
+            filled = []
+            try:
+                for side, sym, _ in legs:
+                    self.broker.submit_market(sym, side, round(qtys[sym], 6))
+                    filled.append((side, sym))
+            except Exception as e:
+                for _, sym in filled:  # unwind the filled leg immediately
+                    try:
+                        self.broker.close_position(sym)
+                    except Exception:
+                        pass
+                self._log(f"pair {key} entry failed, unwound: {e}", "ERROR")
+                continue
+
+            rr = risk_cfg.get("risk_reward_ratio", 2.0)
+            for side, sym in filled:
+                entry = pxs[sym]
+                dist = dists[sym]
+                stop = entry - dist if side == "buy" else entry + dist
+                target = entry + dist * rr if side == "buy" else entry - dist * rr
+                self._mgmt[sym] = {
+                    "side": side, "entry": entry, "qty": qtys[sym],
+                    "stop": stop, "target": target, "stop_dist": dist,
+                    "breakeven_done": False, "partial_done": False,
+                    "lock": None, "open_ts": time.time(), "pair": key,
+                }
+                STATE.add_order({
+                    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": sym, "side": side, "qty": round(qtys[sym], 6),
+                    "entry": round(entry, 6), "stop": round(stop, 6),
+                    "target": round(target, 6), "action": "ENTER",
+                    "reason": f"pair {key} z={z:+.2f} corr={st['corr']:.2f}",
+                })
+            self._signal_cooldown[key] = (direction, time.time())
+            STATE.add_signal({
+                "symbol": key, "side": "pair", "type": "PAIR",
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                "reason": f"pair entry z={z:+.2f} corr={st['corr']:.2f} "
+                          f"({'short ' + a + ' / long ' + b if z >= 0 else 'long ' + a + ' / short ' + b})",
+            })
+            self._log(f"PAIR ENTER {key} z={z:+.2f} corr={st['corr']:.2f} "
+                      f"notional={notional:.2f}/leg")
+
+    def manage_pairs(self):
+        """Exit converged pairs; close lone survivors of broken pairs."""
+        if not self._pairs:
+            return
+        cfg = self.cfg
+        mcfg = cfg["medallion"]
+        tf = mcfg.get("timeframe", cfg["strategy"]["timeframe"])
+        limit = max(cfg["engine"].get("candle_warmup", 60),
+                    mcfg.get("pair_lookback", 30) + 10)
+        exit_z = mcfg.get("pair_exit_z", 0.5)
+
+        for a, b in self._pairs:
+            key = f"{a}/{b}"
+            legs = [s for s in (a, b)
+                    if s in self._mgmt and self._mgmt[s].get("pair") == key]
+            if not legs:
+                continue
+            if len(legs) == 1:
+                # the other leg stopped out — close the survivor so we
+                # never hold an unhedged directional bet by accident.
+                s = legs[0]
+                m = self._mgmt[s]
+                px = self.broker.latest_price(s) or m["entry"]
+                self.broker.close_position(s)
+                pnl = ((px - m["entry"]) * m["qty"] if m["side"] == "buy"
+                       else (m["entry"] - px) * m["qty"])
+                STATE.record_trade(m["side"], m["qty"], m["entry"], px, pnl,
+                                   "pair broken — closing survivor")
+                self._log(f"PAIR BROKEN {key} — closed surviving leg {s} "
+                          f"pnl={pnl:.2f}", "WARN")
+                self._last_exit[s] = time.time()
+                self._mgmt.pop(s, None)
+                continue
+            # both legs open -> check for convergence
+            try:
+                df_a = self.broker.bars(a, tf, limit)
+                df_b = self.broker.bars(b, tf, limit)
+            except Exception:
+                continue
+            if df_a is None or df_b is None:
+                continue
+            st = medallion_strategy.pairs_state(df_a["close"], df_b["close"], mcfg)
+            if st is None:
+                continue
+            if abs(st["z"]) <= exit_z:
+                for s in legs:
+                    m = self._mgmt[s]
+                    px = self.broker.latest_price(s) or m["entry"]
+                    self.broker.close_position(s)
+                    pnl = ((px - m["entry"]) * m["qty"] if m["side"] == "buy"
+                           else (m["entry"] - px) * m["qty"])
+                    STATE.record_trade(m["side"], m["qty"], m["entry"], px, pnl,
+                                       f"pair converged z={st['z']:+.2f}")
+                    self._last_exit[s] = time.time()
+                    self._mgmt.pop(s, None)
+                self._log(f"PAIR EXIT {key} — spread converged z={st['z']:+.2f}")
+
     def refresh_positions(self):
         """Sync dashboard state with broker + management dict."""
         positions = []
@@ -330,6 +603,7 @@ class Engine:
 
     # ---------------------------------------------------------
     def tick(self):
+        cfg = self.cfg
         now = datetime.now(timezone.utc)
         # Publish session status for the dashboard (always).
         STATE.set(session=session_status(self.cfg, now))
@@ -340,14 +614,50 @@ class Engine:
 
         # Always refresh equity + last-scan timestamp, even when the session
         # is closed, so the dashboard shows a live account balance.
+        eq = None
         try:
             eq = self.broker.equity()
             STATE.set(equity=round(eq, 2), last_scan=now.strftime("%H:%M:%S"))
         except Exception as e:
             self._log(f"equity fetch failed: {e}", "ERROR")
 
+        # ---- Medallion daily kill-switch ("automatic brakes") ----
+        # If equity drops max_daily_loss_pct below the day's starting
+        # equity, close everything and take no new trades until tomorrow.
+        if self._method == "medallion" and eq:
+            day = now.strftime("%Y-%m-%d")
+            if day != self._day:
+                self._day = day
+                self._day_start_eq = eq
+                self._halted = False
+                self._log(f"new trading day {day} — day-start equity {eq:.2f}")
+            max_dd = cfg["medallion"].get("max_daily_loss_pct", 3.0) / 100.0
+            start = self._day_start_eq or eq
+            if not self._halted and start > 0 and eq <= start * (1 - max_dd):
+                self._halted = True
+                for s in list(self._mgmt.keys()):
+                    try:
+                        self.broker.close_position(s)
+                    except Exception:
+                        pass
+                    self._last_exit[s] = time.time()
+                    self._mgmt.pop(s, None)
+                self._log(f"HALTED FOR THE DAY: equity {eq:.2f} hit "
+                          f"-{max_dd * 100:.1f}% daily limit. All positions "
+                          f"closed — no new trades until tomorrow.", "ERROR")
+        if self._halted:
+            for s in list(self._mgmt.keys()):
+                self.manage(s)
+            self.refresh_positions()
+            return
+
         if not session_open:
             # still manage open positions, just don't open new ones
+            if self._method == "medallion":
+                try:
+                    self.manage_pairs()
+                except Exception as e:
+                    self._log(f"pairs manage error: {e}", "ERROR")
             for s in list(self._mgmt.keys()):
                 self.manage(s)
             self.refresh_positions()
@@ -375,6 +685,18 @@ class Engine:
                     self._log(f"error scanning {symbol}: {e}", "ERROR")
                     traceback.print_exc()
 
+        # medallion pairs: enter new spreads, then manage pair exits
+        if self._method == "medallion":
+            try:
+                self.scan_pairs()
+            except Exception as e:
+                self._log(f"pairs scan error: {e}", "ERROR")
+                traceback.print_exc()
+            try:
+                self.manage_pairs()
+            except Exception as e:
+                self._log(f"pairs manage error: {e}", "ERROR")
+
         # manage all open positions
         for s in list(self._mgmt.keys()):
             try:
@@ -389,7 +711,10 @@ class Engine:
     def run(self):
         STATE.set(running=True, mode=self.broker.mode,
                   started_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
-        self._log(f"714 Method engine started — mode={self.broker.mode}, symbols={self._syms}")
+        name = "Medallion" if self._method == "medallion" else "714 Method"
+        self._log(f"{name} engine started — mode={self.broker.mode}, symbols={self._syms}")
+        if self._method == "medallion" and self._pairs:
+            self._log(f"pairs enabled: {[a + '/' + b for a, b in self._pairs]}")
         poll = self.cfg["engine"].get("poll_seconds", 30)
         while not self._stop.is_set():
             try:
@@ -414,4 +739,9 @@ def load_config(path="config.yaml"):
     mode = os.getenv("BROKER_MODE")
     if mode and mode.strip().lower() in ("paper", "live"):
         cfg["broker"]["mode"] = mode.strip().lower()
+    # Allow overriding the strategy via env var as well
+    # (METHOD=medallion or METHOD=714), e.g. in Render's dashboard.
+    method = os.getenv("METHOD")
+    if method and method.strip().lower() in ("714", "medallion"):
+        cfg["method"] = method.strip().lower()
     return cfg

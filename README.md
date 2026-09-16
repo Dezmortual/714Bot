@@ -167,6 +167,53 @@ test on every push/PR, so GitHub verifies the bot still works before you merge.
 
 ---
 
+## 📊 Medallion mode (quant strategy)
+
+The same bot can also run a **Medallion-style quantitative system**, based on
+the principles in `Most_Profitable_Trading_Strategy_Ever_Explained_Simply.pdf`
+(Jim Simons / Renaissance Technologies — the most profitable documented
+strategy: ~66%/yr gross, ~40%/yr net, 30+ years, zero losing years):
+
+| Medallion principle | How this bot implements it |
+|---|---|
+| Mean reversion (the core) | z-score + RSI(2) entries, **exit at the mean** (`target_override`) |
+| Trend filter / sleeve | Slope-based regime filter + optional Donchian breakout entries |
+| Statistical arbitrage | Dollar-neutral **pairs** (short winner + long loser, exit on convergence) |
+| 100% systematic | Every trade from rules; zero discretion |
+| Leverage + risk brakes | **No leverage by default** (1.0), ATR stops, time stops, **daily kill-switch** |
+
+### Run it
+
+```bash
+# 1. Backtest first (synthetic data, no keys needed)
+python medallion_backtest.py
+
+# 2. Run live engine in SIMULATION (no keys needed)
+METHOD=medallion python app.py        # dashboard on http://localhost:8000
+
+# 3. Paper trade with Alpaca (needs keys in .env)
+METHOD=medallion BROKER_MODE=paper python app.py
+```
+
+Or set it permanently in `config.yaml`:
+
+```yaml
+method: "medallion"   # 714 | medallion
+```
+
+Key `medallion:` settings: `entry_z`, `trigger_mode` (`either` = more trades,
+`both` = stricter), `use_trend_filter`, `use_trend_sleeve`, `pairs`,
+`pair_entry_z`/`pair_exit_z`, `leverage` (**keep 1.0 until proven 6–12 months**),
+`max_hold_bars` (time stop), `max_daily_loss_pct` (kill-switch).
+
+> ⚠️ This is a **retail-sized interpretation** of Medallion's *principles* —
+> not the actual Medallion code (which never left Renaissance). Mock-data
+> results are illustrative only: validate on real data, then paper trade,
+> before ever considering live money. Crypto legs are long-only (Alpaca
+> cannot short crypto), so pairs use stocks.
+
+---
+
 ## ⚠️ Disclaimer
 
 This is **educational software**, not financial advice. The 714 Method's

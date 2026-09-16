@@ -1,7 +1,13 @@
 # ============================================================
-#  714 METHOD TRADING BOT  —  configuration
-#  Based on "The 714 Method" by Mashaya Mthethwa / Forxee Group
+#  714 METHOD + MEDALLION TRADING BOT  —  configuration
+#  method "714"      = The 714 Method (Mashaya Mthethwa / Forxee Group)
+#  method "medallion" = Medallion-style quant system (mean-reversion
+#                      core + trend filter + hedged pairs + risk brakes).
+#                      See "Most_Profitable_Trading_Strategy_Ever_
+#                      Explained_Simply.pdf" for the plain-English guide.
+#  Can also be set via the METHOD env var (METHOD=medallion).
 # ============================================================
+method: "714"
 
 # ---- Broker ----
 broker:
@@ -52,6 +58,55 @@ strategy:
   #       (double bottom) -> break of structure -> new Higher High -> OB buy
   require_break_of_structure: true
   w_formation_tolerance: 0.0005   # % price tolerance for double tops/bottoms
+
+# ---- Medallion-style quant strategy (used when method: medallion) ----
+medallion:
+  symbols:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
+    - AAPL
+    - MSFT
+    - SPY
+  timeframe: 15Min
+
+  # --- Mean-reversion core (SECRET 3: the rubber band) ---
+  mr_lookback: 20        # SMA window for the "mean"
+  entry_z: 2.0           # z-score trigger: price >= 2 std-devs stretched
+  rsi_period: 2          # fast RSI trigger
+  rsi_oversold: 15       # longs trigger at RSI <= this (if use_rsi_filter)
+  rsi_overbought: 85     # shorts trigger at RSI >= this
+  use_rsi_filter: true
+  # "either" = z-score OR RSI fires (more trades, good for learning).
+  # "both"   = needs z-score AND RSI together (stricter, for live money).
+  trigger_mode: "either"
+
+  # --- Trend filter (SECRET 4: buy dips in uptrends only) ---
+  trend_len: 50          # regime average
+  trend_slope_bars: 5    # uptrend = 50-bar SMA rising over last 5 bars
+  use_trend_filter: false  # off by default (pure MR core); enable for live
+  # Optional breakout sleeve (ride strong waves). Off by default —
+  # master mean-reversion first, then enable and compare.
+  use_trend_sleeve: false
+  breakout_len: 20       # N-bar Donchian breakout
+
+  # --- Pairs (SECRET 5: market-neutral hedged bets) ---
+  # Stocks only — pairs need a short leg and Alpaca can't short crypto.
+  pairs:
+    - [AAPL, MSFT]
+  pair_lookback: 30      # spread SMA window
+  pair_entry_z: 1.5      # enter spread when stretched >= 1.5 std-devs (use 2.0 for live)
+  pair_exit_z: 0.5       # exit both legs when spread normalizes
+  pair_min_corr: 0.7     # only trade pairs this correlated ("twins")
+
+  # --- Risk brakes (SECRET 7: leverage + automatic brakes) ---
+  leverage: 1.0          # 1.0 = NO leverage. Keep it until proven 6-12 mo.
+  max_open_trades: 6     # room for singles + pair legs
+  max_hold_bars: 20      # time stop: exit if no snap-back in N bars (0=off)
+  max_daily_loss_pct: 3.0  # daily kill-switch: halt all trading past -3%
+  atr_period: 14
+  atr_stop_mult: 2.0
+  min_stop_pct: 0.003
 
 # ---- Risk management (R-multiple based — fixes the inverted risk:reward) ----
 risk:
