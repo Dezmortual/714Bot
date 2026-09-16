@@ -1,18 +1,34 @@
-# Render "Blueprint" — deploy via render.com
-# NOTE: plan defaults to "free". The FREE tier sleeps after ~15 min of
-# inactivity, which is NOT suitable for a live trading bot (it would miss
-# session windows). For real 24/7 trading, change this to "starter" in the
-# Render dashboard, or use an always-on VPS.
+# Render "Blueprint" — deploy via render.com (New > Blueprint, pick this repo)
+# Runs the trading bot + dashboard 24/7.
+#
+# PLAN: "starter" (~$7/mo) is REQUIRED for 24/7 trading. The "free" tier
+# sleeps after ~15 min of inactivity, which would stop the bot and miss
+# trades. Change to "free" only if you just want to peek at the dashboard.
+#
+# ENV VARS you must set in the Render dashboard (or accept the defaults):
+#   ALPACA_API_KEY / ALPACA_SECRET_KEY — paper keys (start with "PK") from
+#       https://app.alpaca.markets . Leave EMPTY to run in SIMULATION mode.
+#   METHOD        — "medallion" (quant system) or "714" (W/M pattern system)
+#   BROKER_MODE   — "paper" (fake money, real market data) or "live" (REAL money)
+#
+# After deploy, the dashboard + engine start automatically. Every push to
+# the connected branch auto-redeploys. Trade logs (data/trades.csv) live on
+# ephemeral disk — they reset on each redeploy (by design on Render).
 
 services:
   - type: web
-    name: 714-method-bot
+    name: 714-medallion-bot
     runtime: python
-    plan: free              # free (sleeps) | starter (always-on, ~$7/mo)
+    plan: starter           # starter (always-on 24/7, ~$7/mo) | free (sleeps!)
     buildCommand: "pip install -r requirements.txt"
     startCommand: "gunicorn app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT"
+    healthCheckPath: /
     envVars:
+      - key: METHOD
+        value: medallion    # medallion | 714
+      - key: BROKER_MODE
+        value: paper        # paper | live  (live = REAL money!)
       - key: ALPACA_API_KEY
-        sync: false
+        sync: false         # fill in Render dashboard (or leave empty = simulation)
       - key: ALPACA_SECRET_KEY
         sync: false
