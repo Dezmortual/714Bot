@@ -1,0 +1,68 @@
+# ============================================================
+#  DTC BOT  —  configuration
+#  Automated trading robot for the "DTC v1.36" Pine strategy.
+#  The defaults below mirror the indicator's default inputs.
+# ============================================================
+
+# ---- Exchange / market ----
+exchange: binanceusdm        # any ccxt exchange id (binanceusdm, bybit, okx, kraken...)
+                             # overridden by the EXCHANGE env var
+symbol: BTC/USDT:USDT        # unified ccxt symbol (use "BTC/USDT" style for spot-only data)
+timeframe: 15m               # chart timeframe the signals run on
+poll_seconds: 20             # how often the engine wakes up
+warmup_bars: 400             # candles loaded per cycle (>= 3x slowest EMA)
+
+# ---- Strategy (mirror of the Pine inputs) ----
+strategy:
+  ema_lengths: [30, 35, 40, 45, 50, 60]   # the six EMAs of the EMA fan
+  stop_loss_pct: 0.25                      # Pine "Stop Loss %"  (stopLossVal)
+  tp_multipliers: [1.0, 2.0, 3.0, 4.0]     # Pine TP1..TP4 multipliers
+  use_atr_filter: true                     # Pine "Enable ATR Filter?"
+  atr_period: 14                           # Pine "ATR Period"
+  atr_min: 0.5                             # Pine "Min ATR Value" (absolute price units)
+  atr_min_pct: null                        # optional alternative: ATR must exceed this % of price
+  allow_longs: true
+  allow_shorts: true                       # spot markets: set false
+
+# ---- Multi-timeframe dashboard (informational in Pine) ----
+mtf:
+  timeframes: [15m, 30m, 1h, 4h, 1d]       # the Pine defaults 15/30/60/240/1D
+  log_each_bar: true
+  use_as_filter: false                     # optional: only trade with HTF agreement
+  min_agreeing: 3                          # timeframes that must agree when filter is on
+
+# ---- Risk ----
+risk:
+  risk_percent: 1.0            # % of equity risked per trade (size = risk / stop distance)
+  max_position_pct: 50.0       # cap position notional as % of equity
+
+# ---- Paper trading ----
+paper:
+  starting_equity: 10000.0
+  fee_pct: 0.05                # simulated taker fee per side (%)
+
+# ---- Backtest ----
+backtest:
+  days: 90
+  starting_equity: 10000.0
+  risk_percent: 1.0
+  leverage: 1.0                # notional cap = equity * leverage
+  fee_pct: 0.05                # taker fee per side (%)
+
+# ---- Live trading (REAL MONEY — read README first) ----
+live:
+  enabled: false               # hard kill-switch
+  testnet: true                # use the exchange sandbox when available
+  fee_pct: 0.05
+
+# ---- Files ----
+files:
+  state_file: data/bot_state.json
+  trades_csv: data/trades.csv
+  log_file: logs/dtc_bot.log
+
+# ---- Notifications (optional; env vars take precedence) ----
+notifications:
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+  discord_webhook_url: ""
