@@ -47,6 +47,10 @@
   .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:6px; margin-right:6px; }
   .tag.bull { background:rgba(34,197,94,.12); color:var(--green); }
   .tag.bear { background:rgba(239,68,68,.12); color:var(--red); }
+  .notice { background:rgba(245,158,11,.10); border:1px solid rgba(245,158,11,.35);
+            color:#fcd34d; border-radius:10px; padding:11px 14px; font-size:12px;
+            line-height:1.5; }
+  .notice strong { color:#fbbf24; }
 </style>
 </head>
 <body>
@@ -62,6 +66,11 @@
 </header>
 
 <main>
+  <div class="notice full" id="executionNotice" style="display:none">
+    <strong>SIGNAL-ONLY MODE:</strong> this dashboard scans the 714 strategy and sends mobile alerts.
+    It does not place, modify, or close orders. Review the chart and confirm any trade yourself in your
+    MT4/MT5 or iTradeBot setup.
+  </div>
   <div class="card full">
     <div class="stat-row">
       <div class="stat"><div class="k">Mode</div><div class="v blue" id="sMode">—</div></div>
@@ -129,7 +138,8 @@ async function refresh(){
   el('statusBadge').textContent = s.running ? 'RUNNING' : 'STOPPED';
   el('statusBadge').className = 'badge ' + (s.running ? 'on':'off');
   el('modeBadge').textContent = (s.mode||'').toUpperCase();
-  el('modeBadge').className = 'badge ' + (s.mode==='simulation'?'sim':'on');
+  el('modeBadge').className = 'badge ' + ((s.signal_only || s.mode==='simulation')?'sim':'on');
+  el('executionNotice').style.display = s.signal_only ? 'block' : 'none';
 
   // session status
   const ses = s.session || {};

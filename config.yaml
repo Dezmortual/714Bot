@@ -5,9 +5,13 @@
 
 # ---- Broker ----
 broker:
-  # alpaca only supports US equities + crypto. Set keys via env vars
-  # ALPACA_API_KEY / ALPACA_SECRET_KEY, or a .env file.
-  mode: paper            # paper | live
+  # iTradeBot does not publish a third-party order API. The default is
+  # signal-only: alerts are sent to your phone and you confirm any trade in
+  # your own MT4/MT5/iTradeBot setup. Set execution_enabled: true only after
+  # a separate, deliberate paper-trading review.
+  # Alpaca is used here only as an optional data source for stocks/crypto.
+  mode: paper            # paper | live (data account mode)
+  execution_enabled: false
   data_feed: iex         # iex (free) | sip (paid)
 
 # ---- Strategy core settings ----
@@ -80,6 +84,13 @@ risk:
 
   # Legacy pip value (kept for reference / helpers)
   pip_value: 0.01
+
+# ---- Mobile alerts ----
+# Alerts never submit orders. Configure Telegram credentials in .env or your
+# hosting provider; alternatively set ALERT_WEBHOOK_URL for a JSON endpoint.
+alerts:
+  enabled: true
+  timeout_seconds: 8
 
 # ---- Engine ----
 engine:

@@ -16,6 +16,7 @@ from state import STATE
 from engine.strategy import generate_signal, atr
 from engine.risk import position_size, pip_distance
 from engine.mock_broker import MockBroker
+from engine.alerts import AlertManager
 
 
 def _make_broker(cfg):
@@ -81,6 +82,12 @@ class Engine:
     def __init__(self, cfg):
         self.cfg = cfg
         self.broker = _make_broker(cfg)
+        # Signal-only is the safe default. It calculates and publishes 714
+        # setups but never submits, closes, or modifies an order. Execution
+        # must be explicitly enabled in config.yaml by the operator.
+        self.signal_only = not bool(cfg.get("broker", {}).get("execution_enabled", False))
+        self.alerts = AlertManager(cfg, STATE)
+        STATE.set(signal_only=self.signal_only)
         self._stop = threading.Event()
         # per-symbol management state:
         # {symbol: {side, entry, qty, stop, target, breakeven_done, partial_done, lock}}
@@ -159,6 +166,16 @@ class Engine:
         return None
 
     def enter(self, sig):
+        # Never let signal-only mode reach a broker order method. This guard
+        # remains in the entry function as defence in depth even though tick()
+        # also skips enter() in that mode.
+        if self.signal_only:
+            self._log(
+                f"SIGNAL ONLY {sig.get('side', '').upper()} {sig.get('symbol', '')} "
+                "— no order placed"
+            )
+            return
+
         cfg = self.cfg
         symbol = sig["symbol"]
         if symbol in self._mgmt:
@@ -365,7 +382,10 @@ class Engine:
                         continue
                     self._signal_cooldown[symbol] = (sig["side"], time.time())
                     STATE.add_signal(sig)
-                    if symbol not in self._mgmt:
+                    # Alerts are emitted once per cooldown-qualified signal.
+                    # They are informational only and never place an order.
+                    self.alerts.notify_signal(sig)
+                    if not self.signal_only and symbol not in self._mgmt:
                         self.enter(sig)
             except Exception as e:
                 msg = str(e)
@@ -387,9 +407,13 @@ class Engine:
 
     # ---------------------------------------------------------
     def run(self):
-        STATE.set(running=True, mode=self.broker.mode,
+        display_mode = "signal-only" if self.signal_only else self.broker.mode
+        STATE.set(running=True, mode=display_mode, signal_only=self.signal_only,
                   started_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"))
-        self._log(f"714 Method engine started — mode={self.broker.mode}, symbols={self._syms}")
+        self._log(
+            f"714 Method engine started — mode={display_mode}, "
+            f"data={self.broker.mode}, symbols={self._syms}"
+        )
         poll = self.cfg["engine"].get("poll_seconds", 30)
         while not self._stop.is_set():
             try:

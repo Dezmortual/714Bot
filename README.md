@@ -5,9 +5,32 @@ Mthethwa / Forxee Group) — a **time-and-price** strategy built on market
 structure, `W`/`M` (double top/bottom) formations, breaks of structure and
 order blocks.
 
-The bot is built on the **Alpaca** broker (paper **and** live), with a
-built-in **simulation mode** so you can see it run with zero API keys, plus a
-live **web dashboard**.
+The bot uses Alpaca as an optional market-data source and includes a built-in
+**simulation mode** so you can see it run with zero API keys, plus a
+mobile-friendly web dashboard and phone alerts. It defaults to **signal-only
+mode**: it detects setups and sends alerts, but does not place, modify, or
+close orders. You review the chart and confirm any trade in your own MT4/MT5
+or iTradeBot setup.
+
+---
+
+## iTradeBot integration boundary
+
+iTradeBot's public documentation describes an Android app that connects to a
+user-owned MT4/MT5 account. It does not document a public order-submission API
+or webhook for third-party robots. This project therefore does **not** attempt
+fragile Android UI automation or store iTradeBot/MetaTrader credentials.
+
+The supported mobile workflow is:
+
+1. This service scans the configured market data and applies the 714 rules.
+2. It displays the setup and optionally sends a Telegram/JSON webhook alert.
+3. You review spread, news, and risk on your phone.
+4. You confirm the trade in your own MT4/MT5/iTradeBot setup.
+
+For unattended execution, use a native MT4/MT5 Expert Advisor on a Windows VPS
+instead of trying to drive an Android screen. That is a separate execution
+adapter and should be validated on demo first.
 
 ---
 
@@ -45,10 +68,11 @@ live **web dashboard**.
 ├── .env.example         # copy to .env and add your Alpaca keys
 ├── engine/
 │   ├── strategy.py      # swing/zigzag, structure, W/M, BoS, signals
-│   ├── broker.py        # Alpaca wrapper (paper + live)
+│   ├── alerts.py        # Telegram + JSON webhook signal delivery
+│   ├── broker.py        # Alpaca market-data/order wrapper
 │   ├── mock_broker.py   # synthetic data + simulated fills (no keys needed)
 │   ├── risk.py          # position sizing + the book's lot-size table
-│   └── engine.py        # main loop, session gating, trade management
+│   └── engine.py        # main loop, session gating, signal/execution modes
 ├── state.py             # thread-safe shared state (engine ↔ dashboard)
 ├── templates/index.html # dashboard UI (self-contained, no CDN)
 └── data/trades.csv      # persisted trade log
@@ -65,25 +89,30 @@ cd 714bot
 pip install -r requirements.txt
 ```
 
-### 2. Run (simulation — no keys needed)
+### 2. Run safely (signal-only simulation — no keys needed)
 
 ```bash
 python app.py
 ```
 
-Open **http://localhost:8000**. The engine starts immediately in
-`simulation` mode: it generates a synthetic price series with embedded
-`W`/`M` patterns, detects them, and "trades" with simulated fills. Click
-**Start / Stop** in the header to control the engine.
+Open **http://localhost:8000**. With no Alpaca keys, the engine uses synthetic
+bars with embedded `W`/`M` patterns. It detects setups and shows them in the
+dashboard, but the default `execution_enabled: false` prevents all orders.
 
-### 3. Run live / paper with Alpaca
+### 3. Run signal-only with market data and phone alerts
 
-1. Get keys at <https://app.alpaca.markets> (Paper Trading recommended first).
-2. `cp .env.example .env` and paste your `ALPACA_API_KEY` / `ALPACA_SECRET_KEY`.
-3. Set `broker.mode` in `config.yaml` to `paper` or `live`.
-4. `python app.py`
+1. Get paper-data credentials at <https://app.alpaca.markets> if you need
+   stocks/crypto data.
+2. `cp .env.example .env` and add `ALPACA_API_KEY` and
+   `ALPACA_SECRET_KEY`.
+3. Add either Telegram credentials (`TELEGRAM_BOT_TOKEN` and
+   `TELEGRAM_CHAT_ID`) or an `ALERT_WEBHOOK_URL`.
+4. Keep `broker.execution_enabled: false` in `config.yaml`.
+5. Run `python app.py` and confirm the dashboard says `SIGNAL-ONLY`.
 
-The dashboard header shows the current mode (PAPER / LIVE / SIMULATION).
+The alert contains the symbol, side, W/M pattern, structure, BoS direction,
+reference entry, and pattern stop. It is not an order and must be reviewed
+before any manual trade.
 
 ### 4. Backtest
 
@@ -98,7 +127,10 @@ python backtest.py --symbol AAPL   # real bars (needs Alpaca keys)
 
 ```yaml
 broker:
-  mode: paper            # paper | live
+  mode: paper            # data account mode
+  execution_enabled: false  # signal-only safety default
+alerts:
+  enabled: true          # Telegram/webhook delivery; never places orders
 strategy:
   symbols: [AAPL, MSFT, SPY]
   timeframe: 15Min
@@ -151,14 +183,19 @@ one of these:
 | **Fly.io** | small free allowance | `Procfile` works |
 | **VPS** (DigitalOcean/Hetzner, ~$4–6/mo) | cheap & always-on | `pip install -r requirements.txt && python app.py` behind `tmux`/`systemd` |
 
-Set these environment variables on your host:
+Set these environment variables on your host for signal-only operation:
 
 ```
 ALPACA_API_KEY=...
 ALPACA_SECRET_KEY=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
 ```
 
-Then set `broker.mode: paper` (test) or `live` (real money) in `config.yaml`.
+`ALERT_WEBHOOK_URL` can be used instead of Telegram. Keep
+`broker.execution_enabled: false`; the service is designed to alert you so you
+can review and confirm trades in your own MT4/MT5/iTradeBot setup. Do not put
+broker or app passwords in this repository.
 
 ### CI
 

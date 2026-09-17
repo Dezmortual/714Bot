@@ -177,34 +177,38 @@ def generate_signal(df, cfg):
     signal = None
 
     # ---- BUY: W (double bottom) = bullish reversal ----
-    # The book's buy setup: market drops -> forms a W -> breaks up.
-    if w_ok:
+    # The book's buy setup: market drops -> forms a W -> breaks up. When
+    # configured, require the bullish BoS so a double bottom alone cannot
+    # produce an alert before price confirms the reversal.
+    buy_confirmed = not cfg.get("require_break_of_structure", False) or bos_dir == "bullish"
+    sell_confirmed = not cfg.get("require_break_of_structure", False) or bos_dir == "bearish"
+    if w_ok and buy_confirmed:
         entry = close
-        stop = min(p[1] for p in w_pts if p is not None)
+        stop = float(min(p[1] for p in w_pts if p is not None))
         signal = {
             "side": "buy",
             "type": "W formation",
-            "entry": round(entry, 6),
+            "entry": round(float(entry), 6),
             "stop": round(stop, 6),
-            "reason": "W double-bottom reversal",
+            "reason": "W double-bottom reversal with bullish BoS",
         }
 
     # ---- SELL: M (double top) = bearish reversal ----
     # The book's sell setup: market rises -> forms an M -> breaks down.
-    elif m_ok:
+    elif m_ok and sell_confirmed:
         entry = close
-        stop = max(p[1] for p in m_pts if p is not None)
+        stop = float(max(p[1] for p in m_pts if p is not None))
         signal = {
             "side": "sell",
             "type": "M formation",
-            "entry": round(entry, 6),
+            "entry": round(float(entry), 6),
             "stop": round(stop, 6),
-            "reason": "M double-top reversal",
+            "reason": "M double-top reversal with bearish BoS",
         }
 
     if signal:
         signal["bos"] = bos_dir
-        signal["bos_level"] = bos_level
+        signal["bos_level"] = float(bos_level) if bos_level is not None else None
         signal["structure"] = st
-        signal["price"] = close
+        signal["price"] = float(close)
     return signal

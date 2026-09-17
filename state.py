@@ -14,7 +14,8 @@ class BotState:
     def __init__(self):
         self._lock = threading.RLock()
         self.running = False
-        self.mode = "paper"
+        self.mode = "signal-only"
+        self.signal_only = True
         self.started_at = None
         self.last_scan = None
         self.equity = None
@@ -94,6 +95,7 @@ class BotState:
             return {
                 "running": self.running,
                 "mode": self.mode,
+                "signal_only": self.signal_only,
                 "started_at": self.started_at,
                 "last_scan": self.last_scan,
                 "equity": self.equity,
