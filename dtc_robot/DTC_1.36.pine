@@ -1,0 +1,32 @@
+# ============================================================
+#  DTC - v1.36 Pine Script Source Reference
+# ============================================================
+
+//@version=5
+indicator(title='DTC - v1.36', shorttitle='DTC v1.36', overlay=true, max_labels_count=500, max_lines_count=500)
+
+// EMA Settings
+group_ema = "EMA Settings"
+len1 = input.int(30, minval=1, title='EMA 1', group=group_ema)
+len2 = input.int(35, minval=1, title='EMA 2', group=group_ema)
+len3 = input.int(40, minval=1, title='EMA 3', group=group_ema)
+len4 = input.int(45, minval=1, title='EMA 4', group=group_ema)
+len5 = input.int(50, minval=1, title='EMA 5', group=group_ema)
+len6 = input.int(60, minval=1, title='EMA 6', group=group_ema)
+
+// Multi-Timeframe Settings
+group_mtf = "Multi-Timeframe Settings"
+tf1 = input.timeframe("15", title="15M", group=group_mtf)
+tf2 = input.timeframe("30", title="30M", group=group_mtf)
+tf3 = input.timeframe("60", title="1H", group=group_mtf)
+tf4 = input.timeframe("240", title="4H", group=group_mtf)
+tf5 = input.timeframe("1D", title="Daily", group=group_mtf)
+
+// Risk Management
+group_trade = "Risk Management"
+sl_lookback = input.string("Mid", title="Stop-Loss Lookback", options=["Tiny", "Small", "Mid", "Large"], group=group_trade)
+stopLossVal = input.float(0.25, title="Stop Loss %", minval=0, group=group_trade)
+tp1Multiplier = input.float(1.0, "TP1 Multiplier", minval=0, step=0.1, group=group_trade)
+tp2Multiplier = input.float(2.0, "TP2 Multiplier", minval=0, step=0.1, group=group_trade)
+tp3Multiplier = input.float(3.0, "TP3 Multiplier", minval=0, step=0.1, group=group_trade)
+tp4Multiplier = input.float(4.0, "TP4 Multiplier", minval=0, step=0.1, group=group_trade)

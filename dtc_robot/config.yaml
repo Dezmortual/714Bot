@@ -1,0 +1,69 @@
+# ============================================================
+#  DTC v1.36 — Trading Robot Configuration
+#  Based on Pine Script: "DTC - v1.36"
+# ============================================================
+
+broker:
+  # 'paper' or 'live' with Alpaca keys; defaults to 'simulation' if no keys set
+  mode: paper
+  data_feed: iex
+
+strategy:
+  symbols:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
+    - AAPL
+    - MSFT
+    - NVDA
+    - SPY
+    - QQQ
+
+  timeframe: 15Min
+
+  # 6-Period EMA Ribbon (from DTC v1.36 indicator)
+  len1: 30
+  len2: 35
+  len3: 40
+  len4: 45
+  len5: 50
+  len6: 60
+
+  # ATR Volatility Filter
+  use_atr: true
+  atr_period: 14
+  atr_min: 0.1
+
+  # Stop Loss & Take Profit Multipliers (from Pine Script inputs)
+  stop_loss_pct: 0.25         # Stop Loss % (default 0.25%)
+  sl_lookback: "Mid"          # Tiny (3), Small (5), Mid (8), Large (12)
+  use_percentage_sl: true     # Use exact stopLossVal % from script
+
+  tp1_multiplier: 1.0         # 1.0x SL distance
+  tp2_multiplier: 2.0         # 2.0x SL distance
+  tp3_multiplier: 3.0         # 3.0x SL distance
+  tp4_multiplier: 4.0         # 4.0x SL distance
+
+  # Multi-Timeframe Dashboard settings
+  mtf_timeframes:
+    "15": "15Min"
+    "30": "30Min"
+    "60": "1Hour"
+
+  require_mtf_alignment: false # Set true to enforce higher TF EMA 20>50 confluence
+
+risk:
+  risk_mode: percent
+  risk_percent: 1.0           # % account risked per trade
+  max_lot_percent: 10.0       # Max position size as % of portfolio
+  max_open_trades: 4          # Max simultaneous positions
+
+engine:
+  poll_seconds: 10            # Scan cycle frequency
+  signal_cooldown_secs: 180   # Cooldown between same-direction signals
+  reentry_cooldown_secs: 120  # Cooldown after trade exit
+  candle_warmup: 90           # Minimum bars loaded for EMA calculation
+
+dashboard:
+  host: 0.0.0.0
+  port: 8000

@@ -1,0 +1,20 @@
+# Render "Blueprint" — deploy via render.com
+# NOTE: plan defaults to "free". The FREE tier sleeps after ~15 min of
+# inactivity, which is NOT suitable for a live trading bot (it would miss
+# session windows). For real 24/7 trading, change this to "starter" in the
+# Render dashboard, or use an always-on VPS.
+
+services:
+  - type: web
+    name: dtc-trading-robot
+    runtime: python
+    plan: starter           # starter ($7/mo) ensures 24/7 uptime without sleep
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --config gunicorn.conf.py --bind 0.0.0.0:$PORT"
+    envVars:
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: BROKER_MODE
+        value: paper        # paper or live
